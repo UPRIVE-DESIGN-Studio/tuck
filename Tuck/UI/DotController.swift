@@ -1,14 +1,17 @@
 import AppKit
+import KeyboardShortcuts
 
-/// Handles clicks on the dot. Left click toggles the bar of tucked items; right click (or
-/// ⌃-click) shows a small menu with Settings and Quit.
+/// Opens the bar of tucked items: left click on the dot, hovering the notch, or the hotkey.
+/// Right click (or ⌃-click) on the dot shows a small menu with Settings and Quit.
 final class DotController: NSObject {
     private let controller: TuckController
     private let images = ItemImages()
-    private let bar = SecondBar()
+    let bar = SecondBar()
     private let notchSensor = NotchSensor()
     private let showSettings: () -> Void
     private let showOnboarding: () -> Void
+    /// Tucked items in the order the bar shows them, for drag-to-reorder.
+    private var shownOrder: [CGWindowID] = []
     private lazy var contextMenu: NSMenu = {
         let menu = NSMenu()
         menu.addItem(item("Settings…", action: #selector(openSettings), key: ","))
@@ -28,16 +31,25 @@ final class DotController: NSObject {
         button?.action = #selector(dotClicked)
         button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
         bar.dotWindow = button?.window
-        notchSensor.onHover = { [weak self] notch in self?.showFromNotch(notch) }
-        notchSensor.isEnabled = Preferences.notchHover
         bar.onSettings = showSettings
-        bar.onOpen = { [controller] windowID, fromNotch in
+        bar.onOpen = { [controller] windowID, click, fromNotch in
             controller.enqueue {
                 // Let the bar close before something else in the menu bar is pressed.
                 try? await Task.sleep(for: .milliseconds(fromNotch ? 200 : 120))
-                await controller.open(windowID, at: fromNotch ? .notch : .dot)
+                await controller.open(windowID, at: fromNotch ? .notch : .dot, click: click)
             }
         }
+        bar.onReorder = { [weak self, controller] windowID, index in
+            guard let self else { return }
+            let order = self.shownOrder
+            controller.enqueue {
+                await controller.reorder(windowID, to: index, among: order)
+                self.refreshBar()
+            }
+        }
+        notchSensor.onHover = { [weak self] notch in self?.showFromNotch(notch) }
+        notchSensor.isEnabled = Preferences.notchHover
+        KeyboardShortcuts.onKeyUp(for: .openDrawer) { [weak self] in self?.hotkeyPressed() }
     }
 
     @objc private func dotClicked() {
@@ -52,16 +64,12 @@ final class DotController: NSObject {
             showOnboarding()
             return
         }
-        if bar.isVisible {
-            bar.close()
-        } else {
-            showBar()
-        }
+        if bar.isVisible { bar.close() } else { showUnderDot() }
     }
 
     /// `tuck://bar`: same as a left click on the dot.
     func toggleBar() {
-        if bar.isVisible { bar.close() } else { showBar() }
+        if bar.isVisible { bar.close() } else { showUnderDot() }
     }
 
     /// `tuck://notch`: same as hovering the notch.
@@ -74,33 +82,58 @@ final class DotController: NSObject {
         notchSensor.isEnabled = enabled
     }
 
-    private func showFromNotch(_ notch: CGRect) {
-        guard Permissions.isTrusted, !bar.isNotchDrawer else { return }
-        bar.close()
-        showBar(style: .notch(notch))
-    }
-
-    private func showBar() {
-        guard let anchor = controller.controls.dot.button?.window?.frame else { return }
-        showBar(style: .dropdown(anchor: anchor))
-    }
-
-    private func showBar(style: SecondBar.Style) {
-        let tucked = controller.scanner.scan().tucked
-        let titles = ItemLabel.titles(for: tucked)
-        bar.show(entries(tucked, titles: titles, captures: images.cache), style: style)
-
-        guard ItemImages.isAllowed, !tucked.isEmpty else { return }
-        Task {
-            let captures = await images.refresh(tucked)
-            bar.update(entries(tucked, titles: titles, captures: captures))
+    private func hotkeyPressed() {
+        guard Permissions.isTrusted else { return showOnboarding() }
+        if bar.isVisible { return bar.close("hotkey") }
+        if controller.menuBarHasNotch, let notch = notchOfMenuBarScreen() {
+            show(style: .notch(notch), byKeyboard: true)
+        } else {
+            showUnderDot(byKeyboard: true)
         }
     }
 
-    private func entries(
-        _ items: [MenuBarItem], titles: [CGWindowID: String], captures: [CGWindowID: NSImage]
-    ) -> [SecondBar.Entry] {
-        items.map { item in
+    private func notchOfMenuBarScreen() -> CGRect? {
+        let screen = controller.controls.dot.button?.window?.screen
+        return screen.flatMap(NotchSensor.notchRect) ?? NSScreen.screens.lazy.compactMap(NotchSensor.notchRect).first
+    }
+
+    private func showFromNotch(_ notch: CGRect) {
+        guard Permissions.isTrusted, !bar.isNotchDrawer else { return }
+        bar.close()
+        show(style: .notch(notch))
+    }
+
+    private func showUnderDot(byKeyboard: Bool = false) {
+        guard let anchor = controller.controls.dot.button?.window?.frame else { return }
+        show(style: .dropdown(anchor: anchor), byKeyboard: byKeyboard)
+    }
+
+    private func show(style: SecondBar.Style, byKeyboard: Bool = false) {
+        let (tucked, all) = entries(captures: images.cache)
+        bar.show(tucked: tucked, all: all, style: style, byKeyboard: byKeyboard)
+        refreshCaptures()
+    }
+
+    /// Rebuilds the bar's contents after the menu bar changed under it.
+    private func refreshBar() {
+        let (tucked, all) = entries(captures: images.cache)
+        bar.update(tucked: tucked, all: all)
+    }
+
+    private func refreshCaptures() {
+        guard ItemImages.isAllowed else { return }
+        let items = controller.scanner.scan(resolveOwners: false).items
+        Task {
+            _ = await images.refresh(items)
+            refreshBar()
+        }
+    }
+
+    /// The tucked items (left to right) and every item, as bar entries.
+    private func entries(captures: [CGWindowID: NSImage]) -> (tucked: [SecondBar.Entry], all: [SecondBar.Entry]) {
+        let snapshot = controller.scanner.scan()
+        let titles = ItemLabel.titles(for: snapshot.items)
+        func entry(_ item: MenuBarItem) -> SecondBar.Entry {
             if let capture = captures[item.windowID] {
                 return SecondBar.Entry(windowID: item.windowID, title: titles[item.windowID] ?? "", image: capture, isCapture: true)
             }
@@ -108,6 +141,9 @@ final class DotController: NSObject {
             icon?.size = NSSize(width: 20, height: 20)
             return SecondBar.Entry(windowID: item.windowID, title: titles[item.windowID] ?? "", image: icon, isCapture: false)
         }
+        let tucked = snapshot.tucked
+        shownOrder = tucked.map(\.windowID)
+        return (tucked.map(entry), snapshot.items.map(entry))
     }
 
     /// Shows the menu once, then detaches it so the next left click goes back to `dotClicked`.

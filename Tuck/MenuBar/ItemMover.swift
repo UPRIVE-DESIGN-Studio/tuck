@@ -116,12 +116,13 @@ final class ItemMover {
         return false
     }
 
-    /// Fallback for items without an Accessibility element; `AX.press` is preferred.
-    func click(_ windowID: CGWindowID, button: CGMouseButton = .left) async -> Bool {
-        await Cursor.hidden { await clickWithVisibleCursor(windowID, button: button) }
+    /// A synthetic click on an item that is on screen and has stopped moving. Plain clicks prefer
+    /// `AX.press`; right-clicks and ⌥-clicks have no Accessibility equivalent.
+    func click(_ windowID: CGWindowID, button: CGMouseButton = .left, flags: CGEventFlags = []) async -> Bool {
+        await Cursor.hidden { await clickWithVisibleCursor(windowID, button: button, flags: flags) }
     }
 
-    private func clickWithVisibleCursor(_ windowID: CGWindowID, button: CGMouseButton) async -> Bool {
+    private func clickWithVisibleCursor(_ windowID: CGWindowID, button: CGMouseButton, flags: CGEventFlags) async -> Bool {
         guard let item = WindowList.entry(for: windowID) else { return false }
 
         let point = CGPoint(x: item.frame.midX, y: item.frame.midY)
@@ -130,9 +131,9 @@ final class ItemMover {
         default: (.leftMouseDown, .leftMouseUp)
         }
         permitSyntheticEvents()
-        post(mouseEvent(down, at: point, window: windowID, pid: item.ownerPID, flags: [], button: button, clickState: 1))
+        post(mouseEvent(down, at: point, window: windowID, pid: item.ownerPID, flags: flags, button: button, clickState: 1))
         try? await Task.sleep(for: .milliseconds(30))
-        post(mouseEvent(up, at: point, window: windowID, pid: item.ownerPID, flags: [], button: button, clickState: 1))
+        post(mouseEvent(up, at: point, window: windowID, pid: item.ownerPID, flags: flags, button: button, clickState: 1))
         Log.info("clicked \(windowID) at \(point) (route \(route.rawValue))")
         return true
     }

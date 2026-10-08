@@ -138,15 +138,18 @@ final class TuckController {
     /// Opens an item's menu. A menu opens wherever its item is, so an item that is hidden (or, from
     /// the dot, behind the notch) is first moved to `spot`, pressed there, and moved back once its
     /// menu or popover has closed. From the notch, items already behind it are pressed in place.
-    func open(_ windowID: CGWindowID, at spot: OpenSpot = .dot) async {
+    func open(_ windowID: CGWindowID, at spot: OpenSpot = .dot, click: ItemStrip.Click = .primary) async {
         await rehideNow()
         let snapshot = scanner.scan()
         guard let item = snapshot.item(windowID) else { return }
 
-        let inPlace = item.placement == .visible || item.placement == .pinned
-            || (spot == .notch && item.placement == .overflow)
+        // Right- and ⌥-clicks are synthetic and need the item on screen; a press does not.
+        let onScreen = item.isOnScreen && item.placement != .hidden
+        let inPlace = click == .primary
+            ? item.placement == .visible || item.placement == .pinned || (spot == .notch && item.placement == .overflow)
+            : onScreen
         guard !inPlace else {
-            await press(item)
+            await press(item, click)
             return
         }
         let target: ItemMover.Destination? = switch spot {
@@ -168,13 +171,18 @@ final class TuckController {
             pressFallback(item)
             return
         }
-        if spot == .dot {
+        if click != .primary, WindowList.entry(for: windowID)?.isOnScreen != true,
+           let nearDot = nextToDot(moving: windowID) {
+            // The notch spot can still be behind the notch; a synthetic click needs it visible.
+            _ = await mover.move(windowID, to: nearDot)
+        }
+        if spot == .dot || click != .primary {
             _ = await waitUntil(timeout: .seconds(1)) { WindowList.entry(for: windowID)?.isOnScreen == true }
         }
-        try? await Task.sleep(for: .milliseconds(60))
+        await waitForStillFrame(windowID)
 
         let before = WindowList.onScreenWindowIDs()
-        await press(item)
+        await press(item, click)
         tempShown = TempShown(windowID: windowID, returnTo: returnTo, windowsBefore: before, started: .now)
         watchTempShown()
     }
@@ -187,12 +195,42 @@ final class TuckController {
         return .leftOf(all[index + 1].windowID)
     }
 
-    private func press(_ item: MenuBarItem) async {
-        if let element = item.owner?.element, AX.press(element) {
-            Log.info("pressed \(item.windowID)")
-        } else {
-            _ = await mover.click(item.windowID)
+    private func press(_ item: MenuBarItem, _ click: ItemStrip.Click = .primary) async {
+        switch click {
+        case .primary:
+            if let element = item.owner?.element, AX.press(element) {
+                Log.info("pressed \(item.windowID)")
+            } else {
+                _ = await mover.click(item.windowID)
+            }
+        case .secondary:
+            _ = await mover.click(item.windowID, button: .right)
+        case .alternate:
+            _ = await mover.click(item.windowID, flags: .maskAlternate)
         }
+    }
+
+    /// Menu bar items slide into place; a click during the slide misses.
+    private func waitForStillFrame(_ windowID: CGWindowID) async {
+        var last = WindowList.frame(of: windowID)
+        for _ in 0..<15 {
+            try? await Task.sleep(for: .milliseconds(40))
+            let now = WindowList.frame(of: windowID)
+            if now == last { return }
+            last = now
+        }
+    }
+
+    /// Drag-to-reorder in the drawer: puts `windowID` at `index` among the tucked items, which
+    /// are listed in menu bar order.
+    func reorder(_ windowID: CGWindowID, to index: Int, among order: [CGWindowID]) async {
+        let others = order.filter { $0 != windowID }
+        guard !others.isEmpty else { return }
+        let destination: ItemMover.Destination = index < others.count
+            ? .leftOf(others[index])
+            : .rightOf(others[others.count - 1])
+        _ = await mover.move(windowID, to: destination, landed: { _ in true })
+        await settleSeparator()
     }
 
     private func pressFallback(_ item: MenuBarItem) {

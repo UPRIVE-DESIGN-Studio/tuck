@@ -1,3 +1,4 @@
+import KeyboardShortcuts
 import SwiftUI
 
 struct SettingsView: View {
@@ -142,6 +143,13 @@ private struct GeneralTab: View {
                         Text("Rest the pointer behind the notch to drop down the tucked items.")
                     }
                 }
+            }
+
+            Section("Keyboard") {
+                KeyboardShortcuts.Recorder("Open the drawer:", name: .openDrawer)
+                Text("Then use ← → and Return to open an item, ⌥Return for its alternate menu, or start typing to search every item.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Startup") {

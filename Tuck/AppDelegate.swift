@@ -113,8 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "hide": controller.enqueue { await controller.hide(windowID) }
             case "show": controller.enqueue { await controller.show(windowID) }
             case "open":
-                let spot: TuckController.OpenSpot = url.query()?.contains("at=notch") == true ? .notch : .dot
-                controller.enqueue { await controller.open(windowID, at: spot) }
+                let query = url.query() ?? ""
+                let spot: TuckController.OpenSpot = query.contains("at=notch") ? .notch : .dot
+                let click: ItemStrip.Click = query.contains("click=secondary") ? .secondary
+                    : query.contains("click=alternate") ? .alternate : .primary
+                controller.enqueue { await controller.open(windowID, at: spot, click: click) }
             case "move":
                 // tuck://move/<window>?leftOf=<window> or ?rightOf=<window>
                 let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

@@ -5,13 +5,7 @@ import AppKit
 /// out of the notch itself. Either way it floats without activating Tuck and closes on Esc or a
 /// click outside. The notch drawer also closes once the pointer has left it.
 final class SecondBar: NSObject {
-    struct Entry {
-        let windowID: CGWindowID
-        let title: String
-        let image: NSImage?
-        /// True when `image` is a capture of the real item rather than its app icon.
-        let isCapture: Bool
-    }
+    typealias Entry = ItemStrip.Item
 
     enum Style {
         /// Glass dropdown, right-aligned under the dot. Cocoa screen coordinates.
@@ -20,9 +14,13 @@ final class SecondBar: NSObject {
         case notch(CGRect)
     }
 
-    /// Called with the item and whether it was clicked in the notch drawer.
-    var onOpen: (CGWindowID, _ fromNotch: Bool) -> Void = { _, _ in }
+    /// Called with the item, how it was clicked, and whether it was clicked in the notch drawer.
+    var onOpen: (CGWindowID, ItemStrip.Click, _ fromNotch: Bool) -> Void = { _, _, _ in }
+    /// Called with the item and its new index among the tucked items.
+    var onReorder: (CGWindowID, Int) -> Void = { _, _ in }
     var onSettings: () -> Void = {}
+    /// Builds the shelf shown under the items (now playing, timer, files), or nil for none.
+    var makeShelf: (_ onDark: Bool) -> NSView? = { _ in nil }
 
     /// The dot's window: clicks there toggle the bar themselves, so the outside-click monitor ignores them.
     weak var dotWindow: NSWindow?
@@ -31,8 +29,15 @@ final class SecondBar: NSObject {
     private var style: Style?
     private var monitors: [Any] = []
     private var hoverWatch: Task<Void, Never>?
-
     private var isClosing = false
+
+    /// What the bar shows: the tucked items, or with a search query, matches among all items.
+    private var tucked: [Entry] = []
+    private var all: [Entry] = []
+    private var query = ""
+    private var selected: Int?
+    private let strip = ItemStrip()
+    private let queryLabel = NSTextField(labelWithString: "")
 
     var isVisible: Bool { (panel?.isVisible ?? false) && !isClosing }
     var isNotchDrawer: Bool {
@@ -40,43 +45,43 @@ final class SecondBar: NSObject {
         return false
     }
 
-    func show(_ entries: [Entry], style: Style) {
+    override init() {
+        super.init()
+        strip.onClick = { [weak self] windowID, click in self?.open(windowID, click) }
+        strip.onReorder = { [weak self] windowID, index in self?.onReorder(windowID, index) }
+        queryLabel.font = .systemFont(ofSize: 13, weight: .medium)
+    }
+
+    /// - Parameter byKeyboard: opened with the hotkey: the first item is selected and the drawer
+    ///   stays open until Esc, a click outside, or the hotkey again, wherever the pointer is.
+    func show(tucked: [Entry], all: [Entry], style: Style, byKeyboard: Bool = false) {
+        self.tucked = tucked
+        self.all = all
+        query = ""
+        selected = byKeyboard && !tucked.isEmpty ? 0 : nil
+
         let panel = panel ?? makePanel()
         self.panel = panel
         // A drawer that is still closing counts as gone: opening again replays the animation.
         let wasVisible = panel.isVisible && !isClosing
         isClosing = false
         self.style = style
-
-        switch style {
-        case .dropdown(let anchor):
-            let content = glassContent(entries)
-            panel.contentView = content
-            panel.setFrame(dropdownFrame(size: content.fittingSize, anchor: anchor), display: true)
-            panel.hasShadow = true
-            if !wasVisible { fadeIn(panel) }
-
-        case .notch(let notch):
-            let drawer = NotchDrawerView(notch: notch.size, row: row(entries, onDark: true))
-            panel.contentView = drawer
-            panel.hasShadow = false
-            panel.alphaValue = 1
-            panel.setFrame(notchFrame(size: drawer.fittingSize, notch: notch), display: true)
-            if wasVisible {
-                drawer.showOpen()
-            } else {
-                panel.makeKeyAndOrderFront(nil)
-                drawer.animateOpen()
-            }
+        render(animated: !wasVisible)
+        if case .notch(let notch) = style, !byKeyboard {
             watchHover(notch: notch)
+        } else {
+            hoverWatch?.cancel()
+            hoverWatch = nil
         }
         if !wasVisible { installMonitors() }
     }
 
-    /// Swaps in new pictures, e.g. when captures arrive, keeping the bar anchored where it is.
-    func update(_ entries: [Entry]) {
-        guard isVisible, let style else { return }
-        show(entries, style: style)
+    /// Swaps in new pictures or a new order, keeping the query and selection.
+    func update(tucked: [Entry], all: [Entry]) {
+        guard isVisible else { return }
+        self.tucked = tucked
+        self.all = all
+        render(animated: false)
     }
 
     func close(_ reason: String = "") {
@@ -96,6 +101,152 @@ final class SecondBar: NSObject {
         } else {
             panel.orderOut(nil)
         }
+    }
+
+    // MARK: Rendering
+
+    private var shown: [Entry] {
+        guard !query.isEmpty else { return tucked }
+        return all.filter { $0.title.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+    }
+
+    private func render(animated: Bool) {
+        guard let panel, let style else { return }
+        let entries = shown
+        if let index = selected { selected = entries.isEmpty ? nil : min(index, entries.count - 1) }
+
+        switch style {
+        case .dropdown(let anchor):
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 14
+            glass.contentView = content(entries, onDark: false)
+            panel.contentView = glass
+            panel.hasShadow = true
+            panel.setFrame(dropdownFrame(size: glass.fittingSize, anchor: anchor), display: true)
+            if animated { fadeIn(panel) }
+
+        case .notch(let notch):
+            let drawer = NotchDrawerView(notch: notch.size, content: content(entries, onDark: true))
+            panel.contentView = drawer
+            panel.hasShadow = false
+            panel.alphaValue = 1
+            panel.setFrame(notchFrame(size: drawer.fittingSize, notch: notch), display: true)
+            if animated {
+                panel.makeKeyAndOrderFront(nil)
+                drawer.animateOpen()
+            } else {
+                drawer.showOpen()
+            }
+        }
+    }
+
+    private func content(_ entries: [Entry], onDark: Bool) -> NSView {
+        strip.removeFromSuperview()
+        strip.tint = onDark ? .white : .labelColor
+        strip.items = entries
+        strip.selectedIndex = selected
+        strip.canReorder = query.isEmpty
+
+        var views: [NSView] = []
+        if !query.isEmpty {
+            queryLabel.stringValue = "⌕ \(query)"
+            queryLabel.textColor = onDark ? .white : .labelColor
+            views.append(queryLabel)
+        }
+        if entries.isEmpty {
+            let label = NSTextField(labelWithString: query.isEmpty ? "Nothing tucked away" : "No match")
+            label.textColor = onDark ? NSColor.white.withAlphaComponent(0.6) : .secondaryLabelColor
+            label.font = .systemFont(ofSize: 12)
+            views.append(label)
+        } else {
+            views.append(strip)
+        }
+
+        let divider = NSBox()
+        divider.boxType = .custom
+        divider.borderWidth = 0
+        divider.fillColor = onDark ? NSColor.white.withAlphaComponent(0.2) : .separatorColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        views.append(divider)
+
+        let gear = NSButton(
+            image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Tuck Settings")!,
+            target: self, action: #selector(openSettings)
+        )
+        gear.isBordered = false
+        gear.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.7) : .secondaryLabelColor
+        gear.toolTip = "Tuck Settings"
+        gear.translatesAutoresizingMaskIntoConstraints = false
+        gear.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        views.append(gear)
+
+        let row = NSStackView(views: views)
+        row.orientation = .horizontal
+        row.spacing = 6
+        row.alignment = .centerY
+        row.setCustomSpacing(8, after: views[views.count - 3])
+        row.heightAnchor.constraint(equalToConstant: 34).isActive = true
+
+        let column = NSStackView(views: [row])
+        column.orientation = .vertical
+        column.alignment = .centerX
+        column.spacing = 6
+        column.edgeInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 8)
+        if query.isEmpty, let shelf = makeShelf(onDark) {
+            column.addArrangedSubview(shelf)
+        }
+        return column
+    }
+
+    // MARK: Keyboard
+
+    /// Arrows move the selection, Return opens it (⌥Return as ⌥-click), Esc closes, typing searches.
+    fileprivate func handleKey(_ event: NSEvent) -> Bool {
+        let entries = shown
+        switch event.keyCode {
+        case 53: // Esc: clear the search first, then close
+            if query.isEmpty { close("escape") } else { query = ""; render(animated: false) }
+        case 123: // ←
+            selected = max(0, (selected ?? entries.count) - 1)
+            strip.selectedIndex = selected
+        case 124: // →
+            selected = min(entries.count - 1, (selected ?? -1) + 1)
+            strip.selectedIndex = selected
+        case 36, 76: // Return, Enter
+            guard let index = selected ?? (entries.isEmpty ? nil : 0), entries.indices.contains(index) else { return true }
+            open(entries[index].windowID, event.modifierFlags.contains(.option) ? .alternate : .primary)
+        case 51: // Delete
+            guard !query.isEmpty else { return true }
+            query.removeLast()
+            selected = query.isEmpty ? nil : 0
+            render(animated: false)
+        default:
+            guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty,
+                  event.modifierFlags.isDisjoint(with: [.command, .control]),
+                  characters.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(.punctuationCharacters).union(.whitespaces).contains($0) })
+            else { return false }
+            query += characters
+            selected = 0
+            render(animated: false)
+        }
+        return true
+    }
+
+    // MARK: Actions
+
+    private func open(_ windowID: CGWindowID, _ click: ItemStrip.Click) {
+        let fromNotch = isNotchDrawer
+        close()
+        onOpen(windowID, click, fromNotch)
+    }
+
+    @objc private func openSettings() {
+        close()
+        onSettings()
     }
 
     // MARK: Geometry & animation
@@ -161,91 +312,8 @@ final class SecondBar: NSObject {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.onCancel = { [weak self] in self?.close("cancel") }
+        panel.onKey = { [weak self] event in self?.handleKey(event) ?? false }
         return panel
-    }
-
-    private func glassContent(_ entries: [Entry]) -> NSView {
-        let glass = NSGlassEffectView()
-        glass.cornerRadius = 14
-        glass.contentView = row(entries, onDark: false)
-        return glass
-    }
-
-    private func row(_ entries: [Entry], onDark: Bool) -> NSStackView {
-        var views: [NSView] = []
-        if entries.isEmpty {
-            let label = NSTextField(labelWithString: "Nothing tucked away")
-            label.textColor = onDark ? NSColor.white.withAlphaComponent(0.6) : .secondaryLabelColor
-            label.font = .systemFont(ofSize: 12)
-            views.append(label)
-        }
-        for entry in entries {
-            views.append(itemButton(entry))
-        }
-
-        let divider = NSBox()
-        divider.boxType = .custom
-        divider.borderWidth = 0
-        divider.fillColor = onDark ? NSColor.white.withAlphaComponent(0.2) : .separatorColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 18),
-        ])
-        views.append(divider)
-
-        let gear = NSButton(
-            image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Tuck Settings")!,
-            target: self, action: #selector(openSettings)
-        )
-        gear.isBordered = false
-        gear.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.7) : .secondaryLabelColor
-        gear.toolTip = "Tuck Settings"
-        gear.translatesAutoresizingMaskIntoConstraints = false
-        gear.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        views.append(gear)
-
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.spacing = 2
-        stack.alignment = .centerY
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 8)
-        stack.setCustomSpacing(8, after: views[views.count - 3])
-        stack.setCustomSpacing(6, after: divider)
-        stack.heightAnchor.constraint(equalToConstant: 34).isActive = true
-        return stack
-    }
-
-    private func itemButton(_ entry: Entry) -> NSButton {
-        let button = ItemButton(windowID: entry.windowID)
-        button.image = entry.image ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: nil)
-        button.imageScaling = .scaleProportionallyDown
-        button.isBordered = false
-        button.toolTip = entry.title
-        button.setAccessibilityLabel(entry.title)
-        button.target = self
-        button.action = #selector(itemClicked(_:))
-        button.translatesAutoresizingMaskIntoConstraints = false
-        let width = entry.isCapture ? (entry.image?.size.width ?? 30) : 30
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: width),
-            button.heightAnchor.constraint(equalToConstant: entry.isCapture ? 26 : 20),
-        ])
-        return button
-    }
-
-    // MARK: Actions
-
-    @objc private func itemClicked(_ sender: ItemButton) {
-        let fromNotch = isNotchDrawer
-        close()
-        onOpen(sender.windowID, fromNotch)
-    }
-
-    @objc private func openSettings() {
-        close()
-        onSettings()
     }
 
     // MARK: Dismissal
@@ -289,7 +357,7 @@ private final class NotchDrawerView: NSView {
     private let row: NSView
     private let shape = CAShapeLayer()
 
-    init(notch: CGSize, row: NSView) {
+    init(notch: CGSize, content row: NSView) {
         self.notch = notch
         self.row = row
         super.init(frame: .zero)
@@ -419,24 +487,13 @@ private final class NotchDrawerView: NSView {
     }
 }
 
-private final class ItemButton: NSButton {
-    let windowID: CGWindowID
-
-    init(windowID: CGWindowID) {
-        self.windowID = windowID
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-}
-
-/// Takes key status without activating Tuck, so Esc reaches it.
+/// Takes key status without activating Tuck, so the keyboard reaches it.
 private final class BarPanel: NSPanel {
-    var onCancel: () -> Void = {}
+    var onKey: (NSEvent) -> Bool = { _ in false }
 
     override var canBecomeKey: Bool { true }
 
-    override func cancelOperation(_ sender: Any?) {
-        onCancel()
+    override func keyDown(with event: NSEvent) {
+        if !onKey(event) { super.keyDown(with: event) }
     }
 }

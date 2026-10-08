@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -163,5 +164,32 @@ struct ItemKeyTests {
         saved.order = ["a|#0"]
         let decoded = try JSONDecoder().decode(ItemStore.Saved.self, from: JSONEncoder().encode(saved))
         #expect(decoded == saved)
+    }
+}
+
+struct PixelStatsTests {
+    func image(_ draw: (CGContext) -> Void) -> CGImage {
+        let context = CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 160,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        draw(context)
+        return context.makeImage()!
+    }
+
+    @Test func whiteGlyphOnClearIsAMonochromeTemplate() {
+        let glyph = image { $0.setFillColor(.white); $0.fill(CGRect(x: 12, y: 12, width: 16, height: 16)) }
+        let picture = ItemImages.picture(from: glyph, size: CGSize(width: 20, height: 20))
+        #expect(picture?.isTemplate == true)
+    }
+
+    @Test func colourIconStaysInColour() {
+        let icon = image { $0.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.1, alpha: 1)); $0.fill(CGRect(x: 10, y: 10, width: 20, height: 20)) }
+        #expect(ItemImages.picture(from: icon, size: CGSize(width: 20, height: 20))?.isTemplate == false)
+    }
+
+    @Test func blankAndSolidCapturesAreRejected() {
+        let blank = image { _ in }
+        let solid = image { $0.setFillColor(.black); $0.fill(CGRect(x: 0, y: 0, width: 40, height: 40)) }
+        #expect(ItemImages.picture(from: blank, size: .zero) == nil)
+        #expect(ItemImages.picture(from: solid, size: .zero) == nil)
     }
 }
