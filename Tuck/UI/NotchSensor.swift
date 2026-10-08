@@ -60,6 +60,7 @@ final class NotchSensor {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         let view = SensorView(frame: CGRect(origin: .zero, size: notch.size))
         view.onEnter = { [weak self] in self?.pointerEntered(notch) }
+        view.onDragEnter = { [weak self] in self?.onHover(notch) }
         window.contentView = view
         window.orderFrontRegardless()
         return window
@@ -79,6 +80,20 @@ final class NotchSensor {
 
 private final class SensorView: NSView {
     var onEnter: () -> Void = {}
+    /// Files dragged to the notch open the drawer straight away, so they can be dropped on the shelf.
+    var onDragEnter: () -> Void = {}
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        onDragEnter()
+        return []
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

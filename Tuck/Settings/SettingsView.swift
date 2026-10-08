@@ -3,11 +3,14 @@ import SwiftUI
 
 struct SettingsView: View {
     let model: SettingsModel
+    let shelf: ShelfModel
 
     var body: some View {
         TabView {
             ItemsTab(model: model)
                 .tabItem { Label("Items", systemImage: "menubar.rectangle") }
+            ShelfTab(shelf: shelf)
+                .tabItem { Label("Shelf", systemImage: "tray") }
             GeneralTab(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
         }
@@ -118,6 +121,37 @@ private struct ItemRow: View {
         }
         if let trigger = row.trigger { text += " · \(trigger.summary)" }
         return text
+    }
+}
+
+// MARK: Shelf
+
+private struct ShelfTab: View {
+    @Bindable var shelf: ShelfModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $shelf.showsNowPlaying) {
+                    Text("Now playing")
+                    Text("Spotify or Music: title, artist, play and skip. macOS asks once for permission to control each app.")
+                }
+                Toggle(isOn: $shelf.showsTimer) {
+                    Text("Timer")
+                    Text("5, 15 or 25 minutes. When it ends, a sound plays and the drawer peeks open.")
+                }
+                Toggle(isOn: $shelf.showsFiles) {
+                    Text("Files")
+                    Text("Drag files onto the notch, then drop them on AirDrop to send or Keep to park them until you drag them out.")
+                }
+            } header: {
+                Text("Under the items in the drawer")
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: shelf.showsNowPlaying) { Preferences.shelfNowPlaying = shelf.showsNowPlaying }
+        .onChange(of: shelf.showsTimer) { Preferences.shelfTimer = shelf.showsTimer }
+        .onChange(of: shelf.showsFiles) { Preferences.shelfFiles = shelf.showsFiles }
     }
 }
 

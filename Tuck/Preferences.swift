@@ -7,6 +7,9 @@ enum Preferences {
         static let autoTuck = "autoTuck"
         static let revealOnPlainDisplays = "revealOnPlainDisplays"
         static let showCount = "showCount"
+        static let shelfNowPlaying = "shelfNowPlaying"
+        static let shelfTimer = "shelfTimer"
+        static let shelfFiles = "shelfFiles"
     }
 
     /// Hovering the notch opens the drawer of tucked items. On by default.
@@ -31,6 +34,22 @@ enum Preferences {
     static var showCount: Bool {
         get { bool(Key.showCount, default: true) }
         set { UserDefaults.standard.set(newValue, forKey: Key.showCount) }
+    }
+
+    /// Shelf sections in the drawer. All on by default.
+    static var shelfNowPlaying: Bool {
+        get { bool(Key.shelfNowPlaying, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.shelfNowPlaying) }
+    }
+
+    static var shelfTimer: Bool {
+        get { bool(Key.shelfTimer, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.shelfTimer) }
+    }
+
+    static var shelfFiles: Bool {
+        get { bool(Key.shelfFiles, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.shelfFiles) }
     }
 
     private static func bool(_ key: String, default value: Bool) -> Bool {

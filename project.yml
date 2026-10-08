@@ -39,6 +39,8 @@ targets:
         LSUIElement: true
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: ""
+        NSAppleEventsUsageDescription: "Tuck shows what Spotify or Music is playing in the notch drawer, with play and skip buttons."
+        NSLocationUsageDescription: "Tuck reads the Wi‑Fi network name to show menu bar items only on networks you choose. Your location is never used."
         CFBundleURLTypes:
           - CFBundleURLName: design.uprive.tuck
             CFBundleURLSchemes: [tuck]
@@ -46,6 +48,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: design.uprive.tuck
         PRODUCT_NAME: Tuck
+        CODE_SIGN_ENTITLEMENTS: Tuck/Tuck.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
 

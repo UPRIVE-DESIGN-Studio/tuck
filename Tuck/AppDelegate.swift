@@ -6,6 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: TuckController?
     private var autoTucker: AutoTucker?
+    private var triggers: TriggerEngine?
     private let store = ItemStore()
     private var dot: DotController?
     private var settingsWindow: WindowHost?
@@ -34,16 +35,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.controls.setCount(Preferences.showCount ? count : 0)
         }
         let settings = SettingsModel(controller: controller, store: store)
-        settings.onLayoutPreferenceChange = {
+        settings.onLayoutPreferenceChange = { [weak self] in
             controller.enqueue { await controller.settleSeparator() }
             autoTucker.schedule(enforceModes: true)
+            self?.triggers?.check()
         }
-        settingsWindow = WindowHost(title: "Tuck Settings") { SettingsView(model: settings) }
-        dot = DotController(
+        let dot = DotController(
             controller: controller,
             showSettings: { [weak self] in self?.settingsWindow?.show() },
             showOnboarding: { [weak self] in self?.showOnboarding() }
         )
+        self.dot = dot
+        settingsWindow = WindowHost(title: "Tuck Settings") { SettingsView(model: settings, shelf: dot.shelf) }
+        let triggers = TriggerEngine(controller: controller, store: store) { [weak dot] in dot?.peek() }
+        self.triggers = triggers
+        autoTucker.exempt = { [weak triggers] in triggers?.shownByTrigger ?? [] }
         settings.onNotchHoverChange = { [weak self] in self?.dot?.setNotchHover($0) }
         Log.info("launched; trusted=\(Permissions.isTrusted)")
 
@@ -54,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The first owner scan asks every running app; do it now rather than on the first click.
             if Permissions.isTrusted { self.store.adopt(controller.scanner.scan().items) }
             autoTucker.start()
+            triggers.start()
         }
 
         if !Permissions.isTrusted {
@@ -95,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch command {
             case "bar": dot?.toggleBar()
             case "notch": dot?.showFromNotch()
+            case "peek": dot?.peek()
+            case "snapshot":
+                let url = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/Tuck-bar.png")
+                Log.info("snapshot: \(dot?.bar.snapshot(to: url) == true ? url.path : "nothing open")")
             case "mode":
                 // tuck://mode/<window>/<show|auto|hide>
                 let parts = url.pathComponents.dropFirst()
@@ -107,9 +118,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if mode != .hide && wasHidden { await controller.place(windowID, rank: store.rank(key), ranks: store.rank) }
                 }
                 autoTucker?.schedule(after: .seconds(1), enforceModes: true)
+            case "trigger":
+                // tuck://trigger/<window>/<none|battery|below-<n>|focus|appearance|app-<bundle id>>
+                guard let raw = url.pathComponents.dropFirst(2).first,
+                      let key = controller.scanner.scan().item(windowID)?.key else { break }
+                let trigger: Trigger? = switch raw {
+                case "battery": .onBattery
+                case "focus": .focus
+                case "appearance": .appearanceChanges
+                case let value where value.hasPrefix("below-"): Int(value.dropFirst(6)).map { .batteryBelow(percent: $0) }
+                case let value where value.hasPrefix("app-"): .appFrontmost(bundleID: String(value.dropFirst(4)))
+                default: nil
+                }
+                store.setTrigger(trigger, for: key)
+                triggers?.check()
+            case "resetdot": controller.controls.resetDotPosition()
+            case "state": Log.info("state: \(controller.debugState)")
             case "settings": settingsWindow?.show()
             case "dump": dump(controller.scanner.scan(), controller: controller)
             case "axdump": axDump()
+            case "ax":
+                // tuck://ax/<window>: every attribute of one item's Accessibility element
+                guard let element = controller.scanner.scan().item(windowID)?.owner?.element else { break }
+                var names: CFArray?
+                AXUIElementCopyAttributeNames(element, &names)
+                let lines = ((names as? [String]) ?? []).map { "  \($0) = \(AX.attribute(element, $0).map { "\($0)" } ?? "nil")" }
+                Log.info("ax \(windowID):\n" + lines.joined(separator: "\n"))
             case "hide": controller.enqueue { await controller.hide(windowID) }
             case "show": controller.enqueue { await controller.show(windowID) }
             case "open":

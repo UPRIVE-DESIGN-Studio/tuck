@@ -20,6 +20,7 @@ final class TuckController {
     }
 
     private var queued = 0
+    var debugState: String { "queued \(queued), tempShown \(tempShown.map { "\($0.windowID)" } ?? "none")" }
 
     /// Nothing queued or running, and no item temporarily out.
     var isIdle: Bool { queued <= 1 && tempShown == nil }
@@ -29,9 +30,20 @@ final class TuckController {
         queued += 1
         tail = Task {
             await previous?.value
+            let pinnedBefore = pinnedCount()
             await work()
+            // A drop near the dot can drag the dot itself along. If anything new ended up to
+            // its right, put the dot back where it belongs.
+            if pinnedCount() > pinnedBefore {
+                Log.error("the dot moved during an operation; putting it back")
+                controls.resetDotPosition()
+            }
             queued -= 1
         }
+    }
+
+    private func pinnedCount() -> Int {
+        scanner.scan(resolveOwners: false).items.filter { $0.placement == .pinned }.count
     }
 
     // MARK: Hide / show
@@ -83,15 +95,15 @@ final class TuckController {
         await settleSeparator()
     }
 
-    /// "Just left of the dot", expressed against the item already there. Events must never be
-    /// addressed to the dot itself: macOS would deliver them to Tuck, which then starts dragging
-    /// its own dot and opens its own menu.
+    /// Close to the dot: just left of the item next to it. Never right against the dot: a drop
+    /// there, or any event addressed to the dot, reaches Tuck itself, which then drags its own
+    /// dot along and opens its own menu.
     private func nextToDot(moving windowID: CGWindowID) -> ItemMover.Destination? {
         let snapshot = scanner.scan(resolveOwners: false)
         guard let dot = snapshot.dot else { return nil }
         let candidates = snapshot.items.filter { $0.windowID != windowID && $0.frame.maxX <= dot.frame.minX + 1 }
         if let neighbour = candidates.last, neighbour.placement != .hidden {
-            return .rightOf(neighbour.windowID)
+            return .leftOf(neighbour.windowID)
         }
         return snapshot.separator.map { .rightOf($0.windowID) }
     }

@@ -15,6 +15,8 @@ final class AutoTucker {
 
     /// Called after every check with the number of items out of sight that the user did not hide.
     var onCountChange: (Int) -> Void = { _ in }
+    /// Items a trigger brought out; treated as Show until the trigger ends.
+    var exempt: () -> Set<ItemKey> = { [] }
 
     init(controller: TuckController, store: ItemStore) {
         self.controller = controller
@@ -81,9 +83,10 @@ final class AutoTucker {
 
         let candidates = snapshot.items.compactMap { item -> AutoTuckPlanner.Candidate? in
             guard let key = item.key, item.placement != .pinned else { return nil }
+            let mode = exempt().contains(key) ? .show : store.mode(key) ?? .auto
             return AutoTuckPlanner.Candidate(
                 key: key, width: item.frame.width, placement: item.placement, isOnScreen: item.isOnScreen,
-                mode: store.mode(key) ?? .auto, rank: store.rank(key)
+                mode: mode, rank: store.rank(key)
             )
         }
         let step = AutoTuckPlanner.next(

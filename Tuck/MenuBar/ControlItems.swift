@@ -57,6 +57,17 @@ final class ControlItems {
         }
     }
 
+    /// Puts the dot back next to the Clock and Control Center without dragging it: dragging
+    /// Tuck's own item sends the events to Tuck itself. macOS re-reads the saved position
+    /// when an item is shown again.
+    func resetDotPosition() {
+        UserDefaults.standard.set(0, forKey: Key.position(Key.dot))
+        dot.isVisible = false
+        UserDefaults.standard.set(0, forKey: Key.position(Key.dot))
+        dot.isVisible = true
+        Log.info("dot position reset")
+    }
+
     func apply(_ state: SeparatorState) {
         separatorState = state
         switch state {

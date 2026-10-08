@@ -21,6 +21,8 @@ final class SecondBar: NSObject {
     var onSettings: () -> Void = {}
     /// Builds the shelf shown under the items (now playing, timer, files), or nil for none.
     var makeShelf: (_ onDark: Bool) -> NSView? = { _ in nil }
+    /// The bar opened (true) or started closing (false).
+    var onVisibilityChange: (Bool) -> Void = { _ in }
 
     /// The dot's window: clicks there toggle the bar themselves, so the outside-click monitor ignores them.
     weak var dotWindow: NSWindow?
@@ -54,7 +56,9 @@ final class SecondBar: NSObject {
 
     /// - Parameter byKeyboard: opened with the hotkey: the first item is selected and the drawer
     ///   stays open until Esc, a click outside, or the hotkey again, wherever the pointer is.
-    func show(tucked: [Entry], all: [Entry], style: Style, byKeyboard: Bool = false) {
+    /// - Parameter peek: open without the pointer there, e.g. when a timer ends; the drawer stays
+    ///   this long before closing unless the pointer comes over.
+    func show(tucked: [Entry], all: [Entry], style: Style, byKeyboard: Bool = false, peek: Duration? = nil) {
         self.tucked = tucked
         self.all = all
         query = ""
@@ -68,12 +72,15 @@ final class SecondBar: NSObject {
         self.style = style
         render(animated: !wasVisible)
         if case .notch(let notch) = style, !byKeyboard {
-            watchHover(notch: notch)
+            watchHover(notch: notch, after: peek ?? .zero)
         } else {
             hoverWatch?.cancel()
             hoverWatch = nil
         }
-        if !wasVisible { installMonitors() }
+        if !wasVisible {
+            installMonitors()
+            onVisibilityChange(true)
+        }
     }
 
     /// Swaps in new pictures or a new order, keeping the query and selection.
@@ -90,6 +97,7 @@ final class SecondBar: NSObject {
         removeMonitors()
         guard let panel, panel.isVisible, !isClosing else { return }
         if !reason.isEmpty { Log.info("bar closed: \(reason)") }
+        onVisibilityChange(false)
         if case .notch = style, let drawer = panel.contentView as? NotchDrawerView {
             isClosing = true
             drawer.animateClose { [weak self] in
@@ -101,6 +109,15 @@ final class SecondBar: NSObject {
         } else {
             panel.orderOut(nil)
         }
+    }
+
+    /// `tuck://snapshot`: renders the open bar to a PNG, for checking the layout without
+    /// Screen Recording.
+    func snapshot(to url: URL) -> Bool {
+        guard let view = panel?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? data.write(to: url)) != nil
     }
 
     // MARK: Rendering
@@ -275,9 +292,10 @@ final class SecondBar: NSObject {
 
     /// Closes the notch drawer once the pointer has been outside both the drawer and the notch
     /// for a moment, so slipping off the edge briefly does not snap it shut.
-    private func watchHover(notch: CGRect) {
+    private func watchHover(notch: CGRect, after delay: Duration = .zero) {
         hoverWatch?.cancel()
         hoverWatch = Task { [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
             var outsideSince: ContinuousClock.Instant?
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(80))

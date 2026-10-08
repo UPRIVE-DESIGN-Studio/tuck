@@ -1,5 +1,6 @@
 import AppKit
 import KeyboardShortcuts
+import SwiftUI
 
 /// Opens the bar of tucked items: left click on the dot, hovering the notch, or the hotkey.
 /// Right click (or ⌃-click) on the dot shows a small menu with Settings and Quit.
@@ -8,6 +9,7 @@ final class DotController: NSObject {
     private let images = ItemImages()
     let bar = SecondBar()
     private let notchSensor = NotchSensor()
+    let shelf = ShelfModel()
     private let showSettings: () -> Void
     private let showOnboarding: () -> Void
     /// Tucked items in the order the bar shows them, for drag-to-reorder.
@@ -47,6 +49,16 @@ final class DotController: NSObject {
                 self.refreshBar()
             }
         }
+        bar.makeShelf = { [shelf] onDark in
+            guard !shelf.isEmpty else { return nil }
+            let view = NSHostingView(rootView: ShelfView(model: shelf, onDark: onDark))
+            view.sizingOptions = [.intrinsicContentSize]
+            return view
+        }
+        bar.onVisibilityChange = { [shelf] visible in
+            if visible { shelf.startWatching() } else { shelf.stopWatching() }
+        }
+        shelf.onTimerDone = { [weak self] in self?.peek() }
         notchSensor.onHover = { [weak self] notch in self?.showFromNotch(notch) }
         notchSensor.isEnabled = Preferences.notchHover
         KeyboardShortcuts.onKeyUp(for: .openDrawer) { [weak self] in self?.hotkeyPressed() }
@@ -92,6 +104,21 @@ final class DotController: NSObject {
         }
     }
 
+    /// Opens the drawer for a few seconds without the pointer there: a timer ran out, or an item
+    /// changed. Falls back to the bar under the dot on a display without a notch.
+    func peek(for duration: Duration = .seconds(4)) {
+        guard Permissions.isTrusted, !bar.isVisible else { return }
+        if controller.menuBarHasNotch, let notch = notchOfMenuBarScreen() {
+            show(style: .notch(notch), peek: duration)
+        } else {
+            showUnderDot()
+            Task {
+                try? await Task.sleep(for: duration)
+                bar.close("peek over")
+            }
+        }
+    }
+
     private func notchOfMenuBarScreen() -> CGRect? {
         let screen = controller.controls.dot.button?.window?.screen
         return screen.flatMap(NotchSensor.notchRect) ?? NSScreen.screens.lazy.compactMap(NotchSensor.notchRect).first
@@ -108,9 +135,9 @@ final class DotController: NSObject {
         show(style: .dropdown(anchor: anchor), byKeyboard: byKeyboard)
     }
 
-    private func show(style: SecondBar.Style, byKeyboard: Bool = false) {
+    private func show(style: SecondBar.Style, byKeyboard: Bool = false, peek: Duration? = nil) {
         let (tucked, all) = entries(captures: images.cache)
-        bar.show(tucked: tucked, all: all, style: style, byKeyboard: byKeyboard)
+        bar.show(tucked: tucked, all: all, style: style, byKeyboard: byKeyboard, peek: peek)
         refreshCaptures()
     }
 
