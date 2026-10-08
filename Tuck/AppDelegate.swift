@@ -61,11 +61,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if Permissions.isTrusted { self.store.adopt(controller.scanner.scan().items) }
             autoTucker.start()
             triggers.start()
+            await self.checkHealthAfterSystemUpdate(controller, settings: settings)
         }
 
         if !Permissions.isTrusted {
             showOnboarding()
         }
+    }
+
+    /// After a macOS update (or on the very first launch), checks that hiding and moving still work.
+    private func checkHealthAfterSystemUpdate(_ controller: TuckController, settings: SettingsModel) async {
+        let key = "lastCheckedSystem"
+        guard Permissions.isTrusted, UserDefaults.standard.string(forKey: key) != HealthCheck.systemVersion else { return }
+        let report = await HealthCheck.run(controller)
+        settings.setHealth(report)
+        UserDefaults.standard.set(HealthCheck.systemVersion, forKey: key)
     }
 
     /// Shows the permission explainer and polls once a second until access is granted.
@@ -133,6 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.setTrigger(trigger, for: key)
                 triggers?.check()
             case "resetdot": controller.controls.resetDotPosition()
+            case "health":
+                controller.enqueue {
+                    let report = await HealthCheck.run(controller)
+                    controller.controls.setWarning(!report.passed)
+                }
             case "state": Log.info("state: \(controller.debugState)")
             case "settings": settingsWindow?.show()
             case "dump": dump(controller.scanner.scan(), controller: controller)

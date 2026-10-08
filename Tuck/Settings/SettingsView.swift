@@ -193,6 +193,41 @@ private struct GeneralTab: View {
                 }
             }
 
+            Section {
+                HStack {
+                    Button("Export…", action: model.exportSettings)
+                    Button("Import…", action: model.importSettings)
+                }
+            } header: {
+                Text("Settings File")
+            } footer: {
+                Text("Item modes, ranks, triggers, preferences and the hotkey, as JSON.")
+            }
+
+            Section {
+                if let report = model.health {
+                    ForEach(report.results) { result in
+                        LabeledContent {
+                            Text(result.detail).foregroundStyle(result.passed ? Color.secondary : Color.red)
+                        } label: {
+                            Label(result.name, systemImage: result.passed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(result.passed ? Color.green : Color.orange)
+                        }
+                    }
+                    Text("Checked \(report.date.formatted(date: .abbreviated, time: .shortened)) on \(report.system)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Spacer()
+                    if model.isCheckingHealth { ProgressView().controlSize(.small) }
+                    Button("Run Check", action: model.runHealthCheck).disabled(model.isCheckingHealth)
+                }
+            } header: {
+                Text("Health")
+            } footer: {
+                Text("Runs by itself after a macOS update. Moves one hidden item out and back in to make sure moving still works.")
+            }
+
             Section("Permissions") {
                 PermissionRow(
                     title: "Accessibility",

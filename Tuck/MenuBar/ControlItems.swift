@@ -87,10 +87,26 @@ final class ControlItems {
     func setCount(_ count: Int) {
         guard count != shownCount else { return }
         shownCount = count
-        dot.button?.image = count > 0 ? Self.dotImage(count: count) : Self.dotImage
+        updateDotImage()
+    }
+
+    /// A failed health check shows "!" next to the dot until the next check passes.
+    func setWarning(_ warning: Bool) {
+        guard warning != showsWarning else { return }
+        showsWarning = warning
+        updateDotImage()
     }
 
     private var shownCount = 0
+    private var showsWarning = false
+
+    private func updateDotImage() {
+        if showsWarning {
+            dot.button?.image = Self.dotImage(label: "!")
+        } else {
+            dot.button?.image = shownCount > 0 ? Self.dotImage(label: shownCount > 99 ? "99+" : "\(shownCount)") : Self.dotImage
+        }
+    }
 
     /// Dot frame in CoreGraphics coordinates.
     var dotFrame: CGRect? { cgFrame(of: dot) }
@@ -115,8 +131,8 @@ final class ControlItems {
         return image
     }()
 
-    private static func dotImage(count: Int) -> NSImage {
-        let text = NSAttributedString(string: count > 99 ? "99+" : "\(count)", attributes: [
+    private static func dotImage(label: String) -> NSImage {
+        let text = NSAttributedString(string: label, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: NSColor.black,
         ])

@@ -34,6 +34,9 @@ final class SettingsModel {
     private(set) var revealOnPlainDisplays = Preferences.revealOnPlainDisplays
     private(set) var showCount = Preferences.showCount
 
+    private(set) var health: HealthCheck.Report?
+    private(set) var isCheckingHealth = false
+
     @ObservationIgnored let controller: TuckController
     @ObservationIgnored let store: ItemStore
     @ObservationIgnored var onNotchHoverChange: (Bool) -> Void = { _ in }
@@ -153,6 +156,38 @@ final class SettingsModel {
             launchAtLoginError = error.localizedDescription
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    // MARK: Backup & health
+
+    func exportSettings() {
+        Backup.export(store)
+    }
+
+    func importSettings() {
+        guard Backup.importFile(into: store) else { return }
+        notchHover = Preferences.notchHover
+        autoTuck = Preferences.autoTuck
+        revealOnPlainDisplays = Preferences.revealOnPlainDisplays
+        showCount = Preferences.showCount
+        onNotchHoverChange(notchHover)
+        refresh()
+        onLayoutPreferenceChange()
+    }
+
+    func runHealthCheck() {
+        guard !isCheckingHealth else { return }
+        isCheckingHealth = true
+        controller.enqueue { [weak self, controller] in
+            let report = await HealthCheck.run(controller)
+            self?.setHealth(report)
+            self?.isCheckingHealth = false
+        }
+    }
+
+    func setHealth(_ report: HealthCheck.Report) {
+        health = report
+        controller.controls.setWarning(!report.passed)
     }
 
     func requestScreenRecording() {

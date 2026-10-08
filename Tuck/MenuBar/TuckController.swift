@@ -34,7 +34,7 @@ final class TuckController {
             await work()
             // A drop near the dot can drag the dot itself along. If anything new ended up to
             // its right, put the dot back where it belongs.
-            if pinnedCount() > pinnedBefore {
+            if let pinnedBefore, let pinnedAfter = pinnedCount(), pinnedAfter > pinnedBefore {
                 Log.error("the dot moved during an operation; putting it back")
                 controls.resetDotPosition()
             }
@@ -42,8 +42,11 @@ final class TuckController {
         }
     }
 
-    private func pinnedCount() -> Int {
-        scanner.scan(resolveOwners: false).items.filter { $0.placement == .pinned }.count
+    /// Items right of the dot, or nil before the dot has a place in the menu bar.
+    private func pinnedCount() -> Int? {
+        let snapshot = scanner.scan(resolveOwners: false)
+        guard snapshot.dot != nil else { return nil }
+        return snapshot.items.filter { $0.placement == .pinned }.count
     }
 
     // MARK: Hide / show
@@ -65,8 +68,10 @@ final class TuckController {
     @discardableResult
     func relocate(_ windowID: CGWindowID, to destination: ItemMover.Destination) async -> Bool {
         let snapshot = scanner.scan(resolveOwners: false)
-        if let separator = snapshot.separator, destination.target != separator.windowID,
-           snapshot.item(windowID)?.placement == .hidden {
+        if let separator = snapshot.separator, destination.target == separator.windowID {
+            return await mover.move(windowID, to: destination, edgeFirst: true, landed: cameOut)
+        }
+        if let separator = snapshot.separator, snapshot.item(windowID)?.placement == .hidden {
             guard await mover.move(windowID, to: .rightOf(separator.windowID), edgeFirst: true, landed: cameOut)
             else { return false }
             try? await Task.sleep(for: .milliseconds(60))

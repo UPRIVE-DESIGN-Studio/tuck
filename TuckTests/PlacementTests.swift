@@ -193,3 +193,25 @@ struct PixelStatsTests {
         #expect(ItemImages.picture(from: solid, size: .zero) == nil)
     }
 }
+
+struct BackupTests {
+    @Test func backupRoundTripsThroughJSON() throws {
+        var items = ItemStore.Saved()
+        items.records["a|#0"] = .init(mode: .show, trigger: .wifi(ssid: "Office"))
+        items.order = ["a|#0"]
+        let backup = Backup(items: items, preferences: ["autoTuck": false], hotkey: "{\"carbonKeyCode\":46}")
+        let decoded = try JSONDecoder().decode(Backup.self, from: JSONEncoder().encode(backup))
+        #expect(decoded == backup)
+    }
+
+    @Test func applyingABackupRestoresItemsAndPreferences() throws {
+        let defaults = try #require(UserDefaults(suiteName: "tuck.tests.\(UUID().uuidString)"))
+        let store = ItemStore(defaults: defaults)
+        var items = ItemStore.Saved()
+        items.records["a|#0"] = .init(mode: .hide)
+        Backup(items: items, preferences: ["autoTuck": false, "unknown": true], hotkey: nil).apply(to: store, defaults: defaults)
+        #expect(store.mode(ItemKey(rawValue: "a|#0")) == .hide)
+        #expect(defaults.object(forKey: "autoTuck") as? Bool == false)
+        #expect(defaults.object(forKey: "unknown") == nil)
+    }
+}
