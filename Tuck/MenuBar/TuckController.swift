@@ -71,18 +71,34 @@ final class TuckController {
 
     // MARK: Open
 
-    /// Opens an item's menu. Items that are hidden or behind the notch are first moved next to the
-    /// dot, clicked there, and moved back once their menu or popover has closed.
-    func open(_ windowID: CGWindowID) async {
+    /// Where an item's menu should appear when it is opened from Tuck.
+    enum OpenSpot {
+        /// Next to the dot, where the dropdown was clicked.
+        case dot
+        /// Under the notch, where the drawer was clicked.
+        case notch
+    }
+
+    /// Opens an item's menu. A menu opens wherever its item is, so an item that is hidden (or, from
+    /// the dot, behind the notch) is first moved to `spot`, pressed there, and moved back once its
+    /// menu or popover has closed. From the notch, items already behind it are pressed in place.
+    func open(_ windowID: CGWindowID, at spot: OpenSpot = .dot) async {
         await rehideNow()
         let snapshot = scanner.scan()
         guard let item = snapshot.item(windowID) else { return }
 
-        guard item.placement.isTucked else {
+        let inPlace = item.placement == .visible || item.placement == .pinned
+            || (spot == .notch && item.placement == .overflow)
+        guard !inPlace else {
             await press(item)
             return
         }
-        guard let destination = nextToDot(moving: windowID), let returnTo = returnDestination(for: windowID) else {
+        let target: ItemMover.Destination? = switch spot {
+        case .dot: nextToDot(moving: windowID)
+        // Just right of the separator: the inner end of the menu bar, by the notch.
+        case .notch: snapshot.separator.map { .rightOf($0.windowID) }
+        }
+        guard let destination = target, let returnTo = returnDestination(for: windowID) else {
             pressFallback(item)
             return
         }
@@ -91,7 +107,9 @@ final class TuckController {
             pressFallback(item)
             return
         }
-        _ = await waitUntil(timeout: .seconds(1)) { WindowList.entry(for: windowID)?.isOnScreen == true }
+        if spot == .dot {
+            _ = await waitUntil(timeout: .seconds(1)) { WindowList.entry(for: windowID)?.isOnScreen == true }
+        }
         try? await Task.sleep(for: .milliseconds(60))
 
         let before = WindowList.onScreenWindowIDs()

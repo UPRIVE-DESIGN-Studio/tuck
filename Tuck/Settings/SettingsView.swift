@@ -22,6 +22,12 @@ struct SettingsView: View {
             }
 
             Section("General") {
+                if model.hasNotch {
+                    Toggle(isOn: Binding(get: { model.notchHover }, set: { model.setNotchHover($0) })) {
+                        Text("Open by Hovering the Notch")
+                        Text("Rest the pointer behind the notch to drop down the tucked items.")
+                    }
+                }
                 Toggle("Open at Login", isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }

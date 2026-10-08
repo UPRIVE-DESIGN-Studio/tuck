@@ -20,7 +20,12 @@ final class SettingsModel {
     private(set) var accessibilityGranted = Permissions.isTrusted
     private(set) var screenRecordingGranted = ItemImages.isAllowed
 
+    private(set) var notchHover = Preferences.notchHover
+    /// Whether this Mac has a notched screen right now, so the notch option is worth showing.
+    private(set) var hasNotch = false
+
     @ObservationIgnored private let controller: TuckController
+    @ObservationIgnored var onNotchHoverChange: (Bool) -> Void = { _ in }
 
     init(controller: TuckController) {
         self.controller = controller
@@ -30,6 +35,7 @@ final class SettingsModel {
         accessibilityGranted = Permissions.isTrusted
         screenRecordingGranted = ItemImages.isAllowed
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        hasNotch = NSScreen.screens.contains { NotchSensor.notchRect(of: $0) != nil }
         guard accessibilityGranted else {
             rows = []
             return
@@ -51,6 +57,12 @@ final class SettingsModel {
             self?.pending.remove(id)
             self?.refresh()
         }
+    }
+
+    func setNotchHover(_ enabled: Bool) {
+        Preferences.notchHover = enabled
+        notchHover = enabled
+        onNotchHoverChange(enabled)
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

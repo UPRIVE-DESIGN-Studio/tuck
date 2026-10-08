@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showSettings: { [weak self] in self?.settingsWindow?.show() },
             showOnboarding: { [weak self] in self?.showOnboarding() }
         )
+        settings.onNotchHoverChange = { [weak self] in self?.dot?.setNotchHover($0) }
         Log.info("launched; trusted=\(Permissions.isTrusted)")
 
         // Status item windows get their frames a moment after creation.
@@ -81,12 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.info("url: \(url.absoluteString)")
             switch command {
             case "bar": dot?.toggleBar()
+            case "notch": dot?.showFromNotch()
             case "settings": settingsWindow?.show()
             case "dump": dump(controller.scanner.scan(), controller: controller)
             case "axdump": axDump()
             case "hide": controller.enqueue { await controller.hide(windowID) }
             case "show": controller.enqueue { await controller.show(windowID) }
-            case "open": controller.enqueue { await controller.open(windowID) }
+            case "open":
+                let spot: TuckController.OpenSpot = url.query()?.contains("at=notch") == true ? .notch : .dot
+                controller.enqueue { await controller.open(windowID, at: spot) }
             case "move":
                 // tuck://move/<window>?leftOf=<window> or ?rightOf=<window>
                 let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

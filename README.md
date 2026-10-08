@@ -7,6 +7,7 @@ Phase 0 of [spec.md](spec.md). macOS 26, Apple Silicon, no Dock icon, no network
 ## How it works
 
 - **Click the dot**: a bar drops down under it with every item that is hidden in Tuck or stuck behind the notch. Click one to open it: Tuck brings the item out next to the dot, opens it, and puts it back once its menu closes. The gear at the right end opens Settings.
+- **Hover the notch**: rest the pointer behind the notch for a moment and the same items drop down in a black drawer that grows out of the notch. It closes when the pointer leaves. Can be switched off in Settings.
 - **Settings** (gear, or right-click the dot): a switch per menu bar item to hide it in Tuck, Open at Login, and permissions.
 
 Items right of the dot (Clock, Control Center) are never touched.
@@ -35,7 +36,7 @@ Tuck logs to `~/Library/Logs/Tuck.log`. It also takes `tuck://` URLs:
 
 | URL | Does |
 |---|---|
-| `tuck://bar`, `tuck://settings` | Open the bar / the Settings window |
+| `tuck://bar`, `tuck://notch`, `tuck://settings` | Open the bar / the notch drawer / the Settings window |
 | `tuck://dump` | Logs every item: window ID, position, placement, owner |
 | `tuck://axdump` | Logs every app's raw Accessibility menu bar items |
 | `tuck://hide/<window>` / `tuck://show/<window>` | Same as the switch in Settings |
