@@ -1,0 +1,72 @@
+name: Tuck
+options:
+  bundleIdPrefix: design.uprive
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    DEVELOPMENT_TEAM: AWK5ZJPJG6
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development"
+    ENABLE_APP_SANDBOX: NO
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Tuck:
+    type: application
+    platform: macOS
+    sources:
+      - Tuck
+    info:
+      path: Tuck/Info.plist
+      properties:
+        CFBundleDisplayName: Tuck
+        CFBundleName: Tuck
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: design.uprive.tuck
+            CFBundleURLSchemes: [tuck]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: design.uprive.tuck
+        PRODUCT_NAME: Tuck
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
+
+  TuckTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - TuckTests
+    dependencies:
+      - target: Tuck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: design.uprive.tuck.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Tuck.app/Contents/MacOS/Tuck"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  Tuck:
+    build:
+      targets:
+        Tuck: all
+        TuckTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TuckTests
+    archive:
+      config: Release

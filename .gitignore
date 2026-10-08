@@ -1,0 +1,7 @@
+*.xcodeproj
+DerivedData/
+build/
+.build/
+xcuserdata/
+.DS_Store
+Tuck/Info.plist
