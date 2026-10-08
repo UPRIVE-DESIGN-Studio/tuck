@@ -4,67 +4,13 @@ struct SettingsView: View {
     let model: SettingsModel
 
     var body: some View {
-        Form {
-            Section {
-                if !model.accessibilityGranted {
-                    Text("Grant Accessibility access below to see your menu bar items.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.rows) { row in
-                    ItemRow(row: row, isPending: model.pending.contains(row.id)) { hidden in
-                        model.setHidden(hidden, for: row.id)
-                    }
-                }
-            } header: {
-                Text("Menu Bar Items")
-            } footer: {
-                Text("Hidden items live in the bar under the dot. Items the notch covers show up there too, without being hidden. Clock and Control Center always stay put.")
-            }
-
-            Section("General") {
-                if model.hasNotch {
-                    Toggle(isOn: Binding(get: { model.notchHover }, set: { model.setNotchHover($0) })) {
-                        Text("Open by Hovering the Notch")
-                        Text("Rest the pointer behind the notch to drop down the tucked items.")
-                    }
-                }
-                Toggle("Open at Login", isOn: Binding(
-                    get: { model.launchAtLogin },
-                    set: { model.setLaunchAtLogin($0) }
-                ))
-                if let error = model.launchAtLoginError {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                }
-            }
-
-            Section {
-                PermissionRow(
-                    title: "Accessibility",
-                    detail: "Required to find, move and open menu bar items.",
-                    granted: model.accessibilityGranted
-                ) {
-                    Permissions.prompt()
-                    Permissions.openSettingsPane()
-                }
-                PermissionRow(
-                    title: "Screen Recording",
-                    detail: "Optional. Shows the real menu bar icons in the bar instead of app icons. Takes effect after Tuck restarts.",
-                    granted: model.screenRecordingGranted,
-                    action: model.requestScreenRecording
-                )
-            } header: {
-                Text("Permissions")
-            }
-
-            Section {
-                HStack {
-                    Spacer()
-                    Button("Quit Tuck") { NSApp.terminate(nil) }
-                }
-            }
+        TabView {
+            ItemsTab(model: model)
+                .tabItem { Label("Items", systemImage: "menubar.rectangle") }
+            GeneralTab(model: model)
+                .tabItem { Label("General", systemImage: "gearshape") }
         }
-        .formStyle(.grouped)
-        .frame(width: 460, height: 620)
+        .frame(width: 520, height: 640)
         .task {
             // Items appear, move and change size while the window is open.
             while !Task.isCancelled {
@@ -75,13 +21,51 @@ struct SettingsView: View {
     }
 }
 
+// MARK: Items
+
+private struct ItemsTab: View {
+    let model: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Tuck automatically when the notch would cover items", isOn: Binding(
+                    get: { model.autoTuck }, set: { model.setAutoTuck($0) }
+                ))
+                Text("Drag to rank. Items at the top sit next to the clock and are tucked last. **Show** is never tucked, **Auto** is tucked when space runs out, **Hide** always lives in Tuck.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+
+            if !model.accessibilityGranted {
+                ContentUnavailableView(
+                    "Accessibility access needed", systemImage: "lock",
+                    description: Text("Allow Tuck in the General tab to see your menu bar items.")
+                )
+            } else {
+                List {
+                    ForEach(model.rows) { row in
+                        ItemRow(row: row, model: model)
+                    }
+                    .onMove { model.move(from: $0, to: $1) }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
+            }
+        }
+    }
+}
+
 private struct ItemRow: View {
     let row: SettingsModel.Row
-    let isPending: Bool
-    let setHidden: (Bool) -> Void
+    let model: SettingsModel
+    @State private var editingTrigger = false
 
     var body: some View {
         HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.tertiary)
             Group {
                 if let icon = row.icon {
                     Image(nsImage: icon).resizable()
@@ -93,28 +77,105 @@ private struct ItemRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.title).lineLimit(1)
-                Text(status).font(.caption).foregroundStyle(.secondary)
+                Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            if isPending {
+            if model.pending.contains(row.key) {
                 ProgressView().controlSize(.small)
             }
-            Toggle("Hide in Tuck", isOn: Binding(
-                get: { row.placement == .hidden },
-                set: setHidden
-            ))
+            Button {
+                editingTrigger = true
+            } label: {
+                Image(systemName: row.trigger == nil ? "bolt" : "bolt.fill")
+                    .foregroundStyle(row.trigger == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
+            }
+            .buttonStyle(.borderless)
+            .help(row.trigger?.summary ?? "Show this item when…")
+            .popover(isPresented: $editingTrigger, arrowEdge: .bottom) {
+                TriggerEditor(trigger: row.trigger) { model.setTrigger($0, for: row) }
+            }
+            Picker("Mode", selection: Binding(get: { row.mode }, set: { model.setMode($0, for: row) })) {
+                Text("Show").tag(ItemStore.Mode.show)
+                Text("Auto").tag(ItemStore.Mode.auto)
+                Text("Hide").tag(ItemStore.Mode.hide)
+            }
             .labelsHidden()
-            .toggleStyle(.switch)
-            .disabled(isPending)
+            .pickerStyle(.segmented)
+            .frame(width: 150)
+            .disabled(model.pending.contains(row.key))
         }
+        .padding(.vertical, 2)
     }
 
     private var status: String {
-        switch row.placement {
+        var text = switch row.placement {
+        case .hidden where row.isOnScreen: "In the menu bar (display without a notch)"
+        case .hidden where row.isAutoTucked: "Tucked automatically — no room"
         case .hidden: "Hidden in Tuck"
         case .overflow: "Behind the notch — reachable from the dot"
         case .visible, .pinned: "In the menu bar"
         }
+        if let trigger = row.trigger { text += " · \(trigger.summary)" }
+        return text
+    }
+}
+
+// MARK: General
+
+private struct GeneralTab: View {
+    let model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section("Menu Bar") {
+                Toggle(isOn: Binding(get: { model.revealOnPlainDisplays }, set: { model.setRevealOnPlainDisplays($0) })) {
+                    Text("Show everything on displays without a notch")
+                    Text("On an external display, hidden items appear in the menu bar too.")
+                }
+                Toggle(isOn: Binding(get: { model.showCount }, set: { model.setShowCount($0) })) {
+                    Text("Show count next to the dot")
+                    Text("How many items are behind the notch or tucked automatically.")
+                }
+                if model.hasNotch {
+                    Toggle(isOn: Binding(get: { model.notchHover }, set: { model.setNotchHover($0) })) {
+                        Text("Open by hovering the notch")
+                        Text("Rest the pointer behind the notch to drop down the tucked items.")
+                    }
+                }
+            }
+
+            Section("Startup") {
+                Toggle("Open at Login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                if let error = model.launchAtLoginError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+            }
+
+            Section("Permissions") {
+                PermissionRow(
+                    title: "Accessibility",
+                    detail: "Required to find, move and open menu bar items.",
+                    granted: model.accessibilityGranted
+                ) {
+                    Permissions.prompt()
+                    Permissions.openSettingsPane()
+                }
+                PermissionRow(
+                    title: "Screen Recording",
+                    detail: "Optional. Shows the real menu bar icons in the drawer instead of app icons, and lets an item peek when its icon changes. Takes effect after Tuck restarts.",
+                    granted: model.screenRecordingGranted,
+                    action: model.requestScreenRecording
+                )
+            }
+
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Quit Tuck") { NSApp.terminate(nil) }
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

@@ -72,6 +72,15 @@ final class ControlItems {
         }
     }
 
+    /// Shows `count` next to the dot, or the plain dot for zero.
+    func setCount(_ count: Int) {
+        guard count != shownCount else { return }
+        shownCount = count
+        dot.button?.image = count > 0 ? Self.dotImage(count: count) : Self.dotImage
+    }
+
+    private var shownCount = 0
+
     /// Dot frame in CoreGraphics coordinates.
     var dotFrame: CGRect? { cgFrame(of: dot) }
     var separatorFrame: CGRect? { cgFrame(of: separator) }
@@ -94,6 +103,23 @@ final class ControlItems {
         image.isTemplate = true
         return image
     }()
+
+    private static func dotImage(count: Int) -> NSImage {
+        let text = NSAttributedString(string: count > 99 ? "99+" : "\(count)", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.black,
+        ])
+        let textSize = text.size()
+        let image = NSImage(size: NSSize(width: 7 + 3 + ceil(textSize.width), height: 16), flipped: false) { rect in
+            let diameter: CGFloat = 7
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 0, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
+            text.draw(at: NSPoint(x: diameter + 3, y: rect.midY - textSize.height / 2))
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
 
     private static let dividerImage: NSImage = {
         let image = NSImage(size: NSSize(width: 2, height: 16), flipped: false) { rect in

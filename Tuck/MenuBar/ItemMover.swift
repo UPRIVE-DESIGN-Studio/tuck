@@ -15,10 +15,11 @@ final class ItemMover {
             }
         }
 
-        func dropPoint(in frame: CGRect) -> CGPoint {
+        /// The release point: the target's edge on the wanted side, shifted by `offset` points.
+        func dropPoint(in frame: CGRect, offset: CGFloat) -> CGPoint {
             switch self {
-            case .leftOf: CGPoint(x: frame.minX, y: frame.midY)
-            case .rightOf: CGPoint(x: frame.maxX, y: frame.midY)
+            case .leftOf: CGPoint(x: frame.minX + offset, y: frame.midY)
+            case .rightOf: CGPoint(x: frame.maxX + offset, y: frame.midY)
             }
         }
 
@@ -53,16 +54,33 @@ final class ItemMover {
 
     /// - Parameter landed: an extra success test on the item's new frame, for destinations whose
     ///   own frame the window server reports late (the collapsed separator).
+    /// - Parameter edgeFirst: release exactly on the target's edge first. Right for Tuck's own
+    ///   separator, whose edge is the section boundary.
     func move(
-        _ windowID: CGWindowID, to destination: Destination, landed: ((CGRect) -> Bool)? = nil
+        _ windowID: CGWindowID, to destination: Destination, edgeFirst: Bool = false,
+        landed: ((CGRect) -> Bool)? = nil
     ) async -> Bool {
-        await Cursor.hidden { await moveWithVisibleCursor(windowID, to: destination, landed: landed) }
+        await Cursor.hidden { await moveWithVisibleCursor(windowID, to: destination, edgeFirst: edgeFirst, landed: landed) }
     }
 
     private func moveWithVisibleCursor(
-        _ windowID: CGWindowID, to destination: Destination, landed: ((CGRect) -> Bool)?
+        _ windowID: CGWindowID, to destination: Destination, edgeFirst: Bool, landed: ((CGRect) -> Bool)?
     ) async -> Bool {
-        for attempt in 1...4 {
+        // Where to release, as offsets from the target's edge in units of the moving item's width.
+        // Measured on macOS 26: an item travelling right lands where intended when released half
+        // its width before the edge; one travelling left, right on the edge. The rest are fallbacks.
+        guard let first = WindowList.entry(for: windowID), let firstTarget = WindowList.entry(for: destination.target)
+        else { return false }
+        let movingRight = first.frame.midX < firstTarget.frame.midX
+        let side: CGFloat = if case .leftOf = destination { -1 } else { 1 }
+        let offsets: [CGFloat] = if edgeFirst {
+            [0, 0.25 * side, -0.25 * side, 0.5 * side]
+        } else if movingRight {
+            [-0.5, -0.25, -1, 0]
+        } else {
+            [0, 0.25 * side, 0.5 * side, -0.5]
+        }
+        for (attempt, offset) in zip(1..., offsets) {
             guard let item = WindowList.entry(for: windowID),
                   let target = WindowList.entry(for: destination.target)
             else {
@@ -72,8 +90,10 @@ final class ItemMover {
             if destination.isSatisfied(by: windowID, in: row(at: item.frame.minY)) { return true }
 
             permitSyntheticEvents()
-            let start = CGPoint(x: item.frame.midX, y: item.frame.midY)
-            let end = destination.dropPoint(in: target.frame)
+            // The events name the window, so the press location does not matter; a point off
+            // every screen keeps it from touching whatever is under the pointer.
+            let start = CGPoint(x: 20_000, y: 20_000)
+            let end = destination.dropPoint(in: target.frame, offset: offset * item.frame.width)
             Log.info("move \(windowID) from \(item.frame) → \(destination) target \(target.frame), down \(start) up \(end)")
             post(mouseEvent(.leftMouseDown, at: start, window: item.windowID, pid: item.ownerPID, flags: .maskCommand))
             try? await Task.sleep(for: .milliseconds(40))
@@ -86,7 +106,7 @@ final class ItemMover {
                 return landed(now)
             }
             if done {
-                Log.info("moved \(windowID) \(destination) (attempt \(attempt), route \(route.rawValue))")
+                Log.info("moved \(windowID) \(destination) (attempt \(attempt), offset \(offset))")
                 return true
             }
             let near = row(at: item.frame.minY).prefix(4).map { "\($0.windowID)@\(Int($0.frame.minX))+\(Int($0.frame.width))" }

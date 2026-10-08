@@ -5,6 +5,8 @@ import SwiftUI
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: TuckController?
+    private var autoTucker: AutoTucker?
+    private let store = ItemStore()
     private var dot: DotController?
     private var settingsWindow: WindowHost?
     private var permissionPoll: Task<Void, Never>?
@@ -26,7 +28,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let controller = TuckController()
         self.controller = controller
-        let settings = SettingsModel(controller: controller)
+        let autoTucker = AutoTucker(controller: controller, store: store)
+        self.autoTucker = autoTucker
+        autoTucker.onCountChange = { count in
+            controller.controls.setCount(Preferences.showCount ? count : 0)
+        }
+        let settings = SettingsModel(controller: controller, store: store)
+        settings.onLayoutPreferenceChange = {
+            controller.enqueue { await controller.settleSeparator() }
+            autoTucker.schedule(enforceModes: true)
+        }
         settingsWindow = WindowHost(title: "Tuck Settings") { SettingsView(model: settings) }
         dot = DotController(
             controller: controller,
@@ -41,7 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .milliseconds(500))
             await controller.settleSeparator()
             // The first owner scan asks every running app; do it now rather than on the first click.
-            if Permissions.isTrusted { _ = controller.scanner.scan() }
+            if Permissions.isTrusted { self.store.adopt(controller.scanner.scan().items) }
+            autoTucker.start()
         }
 
         if !Permissions.isTrusted {
@@ -59,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 if Permissions.isTrusted {
                     Log.info("accessibility granted")
-                    _ = self.controller?.scanner.scan()
+                    if let items = self.controller?.scanner.scan().items { self.store.adopt(items) }
                     self.onboardingWindow.close()
                     self.permissionPoll = nil
                     return
@@ -83,6 +95,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch command {
             case "bar": dot?.toggleBar()
             case "notch": dot?.showFromNotch()
+            case "mode":
+                // tuck://mode/<window>/<show|auto|hide>
+                let parts = url.pathComponents.dropFirst()
+                guard let raw = parts.dropFirst().first, let mode = ItemStore.Mode(rawValue: raw),
+                      let item = controller.scanner.scan().item(windowID), let key = item.key else { break }
+                let wasHidden = item.placement == .hidden
+                store.setMode(mode, for: key)
+                controller.enqueue { [store] in
+                    if mode == .hide && !wasHidden { await controller.hide(windowID) }
+                    if mode != .hide && wasHidden { await controller.place(windowID, rank: store.rank(key), ranks: store.rank) }
+                }
+                autoTucker?.schedule(after: .seconds(1), enforceModes: true)
             case "settings": settingsWindow?.show()
             case "dump": dump(controller.scanner.scan(), controller: controller)
             case "axdump": axDump()
@@ -97,9 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let left = query.first { $0.name == "leftOf" }?.value.flatMap { CGWindowID($0) }
                 let right = query.first { $0.name == "rightOf" }?.value.flatMap { CGWindowID($0) }
                 if let left {
-                    controller.enqueue { _ = await controller.mover.move(windowID, to: .leftOf(left)) }
+                    controller.enqueue { await controller.relocate(windowID, to: .leftOf(left)) }
                 } else if let right {
-                    controller.enqueue { _ = await controller.mover.move(windowID, to: .rightOf(right)) }
+                    controller.enqueue { await controller.relocate(windowID, to: .rightOf(right)) }
                 }
             case "click": controller.enqueue { _ = await controller.mover.click(windowID) }
             case "press":

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import Tuck
 
@@ -72,5 +73,95 @@ struct ItemLabelTests {
     @Test func missingLabelFallsBackToAppName() {
         let title = ItemLabel.title(appName: "Spread", bundleID: "design.uprive.spread", detail: nil, appHasSeveralItems: false)
         #expect(title == "Spread")
+    }
+}
+
+struct AutoTuckPlannerTests {
+    typealias C = AutoTuckPlanner.Candidate
+    func key(_ name: String) -> ItemKey { ItemKey(bundleID: name, qualifier: "#0") }
+    func item(_ name: String, _ placement: Placement, on: Bool = true, mode: ItemStore.Mode = .auto, rank: Int, width: CGFloat = 30) -> C {
+        C(key: key(name), width: width, placement: placement, isOnScreen: on, mode: mode, rank: rank)
+    }
+
+    @Test func coveredItemsTuckTheLeastImportantAutoItem() {
+        let items = [
+            item("a", .overflow, on: false, rank: 0),
+            item("b", .visible, rank: 5),
+            item("c", .visible, rank: 2),
+        ]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == .tuck(key("b")))
+    }
+
+    @Test func showItemsAreNeverTucked() {
+        let items = [
+            item("a", .overflow, on: false, mode: .show, rank: 9),
+            item("b", .visible, mode: .show, rank: 8),
+            item("c", .visible, rank: 1),
+        ]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == .tuck(key("c")))
+    }
+
+    @Test func nothingToTuckWhenOnlyShowItemsAreCovered() {
+        let items = [item("a", .overflow, on: false, mode: .show, rank: 0)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == nil)
+    }
+
+    @Test func roomBringsBackTheMostImportantAutoTuckedItem() {
+        let items = [
+            item("a", .hidden, on: false, rank: 7),
+            item("b", .hidden, on: false, rank: 3),
+            item("c", .visible, rank: 1),
+        ]
+        let step = AutoTuckPlanner.next(items, autoTucked: [key("a"), key("b")], freeWidth: 100)
+        #expect(step == .restore(key("b")))
+    }
+
+    @Test func itemsTheUserHidDoNotComeBack() {
+        let items = [item("a", .hidden, on: false, mode: .hide, rank: 0)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 500) == nil)
+    }
+
+    @Test func noRestoreWithoutRoomForTheItemPlusMargin() {
+        let items = [item("a", .hidden, on: false, rank: 0, width: 40)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [key("a")], freeWidth: 45) == nil)
+        #expect(AutoTuckPlanner.next(items, autoTucked: [key("a")], freeWidth: 60) == .restore(key("a")))
+    }
+
+    @Test func hideItemsOnTheVisibleSideGoBackFirst() {
+        let items = [
+            item("a", .overflow, on: false, rank: 0),
+            item("b", .visible, mode: .hide, rank: 1),
+            item("c", .visible, rank: 9),
+        ]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == .tuck(key("b")))
+    }
+
+    @Test func showItemsInsideTuckComeOutEvenWithoutRoom() {
+        let items = [item("a", .hidden, on: false, mode: .show, rank: 0)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == .restore(key("a")))
+    }
+
+    @Test func coolingItemsWaitBeforeComingBack() {
+        let items = [item("a", .hidden, on: false, rank: 0)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [key("a")], freeWidth: 500, cooling: [key("a")]) == nil)
+    }
+}
+
+struct ItemKeyTests {
+    @Test func identifierWinsOverPosition() {
+        let keys = ItemKey.keys(for: [("com.apple.controlcenter", "com.apple.menuextra.wifi"), ("eu.stats", nil), ("eu.stats", nil)])
+        #expect(keys.map { $0?.rawValue } == ["com.apple.controlcenter|com.apple.menuextra.wifi", "eu.stats|#0", "eu.stats|#1"])
+    }
+
+    @Test func unknownOwnerHasNoKey() {
+        #expect(ItemKey.keys(for: [(nil, nil)]) == [nil])
+    }
+
+    @Test func storeRoundTripsThroughJSON() throws {
+        var saved = ItemStore.Saved()
+        saved.records["a|#0"] = .init(mode: .hide, trigger: .batteryBelow(percent: 20))
+        saved.order = ["a|#0"]
+        let decoded = try JSONDecoder().decode(ItemStore.Saved.self, from: JSONEncoder().encode(saved))
+        #expect(decoded == saved)
     }
 }

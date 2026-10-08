@@ -9,7 +9,9 @@ final class ItemScanner {
         var dot: WindowList.Entry?
         var separator: WindowList.Entry?
 
-        var tucked: [MenuBarItem] { items.filter { $0.placement.isTucked } }
+        /// Out of sight: hidden or behind the notch. Hidden items on a display where Tuck reveals
+        /// everything are on screen, so they do not count.
+        var tucked: [MenuBarItem] { items.filter { $0.placement.isTucked && !$0.isOnScreen } }
         var hasHidden: Bool { items.contains { $0.placement == .hidden } }
 
         func item(_ windowID: CGWindowID) -> MenuBarItem? {
@@ -39,10 +41,11 @@ final class ItemScanner {
             ?? entries.first { separatorFrame.map($0.frame.matches) ?? false }
         if let dot { dotWindowID = dot.windowID }
         if let separator { separatorWindowID = separator.windowID }
-        let owners = resolveOwners && Permissions.isTrusted ? resolver.owners(for: entries) : [:]
+        let others = entries.filter { $0.windowID != dot?.windowID && $0.windowID != separator?.windowID }
+        let owners = resolveOwners && Permissions.isTrusted ? resolver.owners(for: others) : [:]
 
         var items: [MenuBarItem] = []
-        for entry in entries where entry.windowID != dot?.windowID && entry.windowID != separator?.windowID {
+        for entry in others {
             let placement = Placement.of(
                 frame: entry.frame, isOnScreen: entry.isOnScreen,
                 separator: separator?.frame, dot: dot?.frame
@@ -52,6 +55,8 @@ final class ItemScanner {
                 isOnScreen: entry.isOnScreen, placement: placement, owner: owners[entry.windowID]
             ))
         }
+        let keys = ItemKey.keys(for: items.map { ($0.owner?.bundleID, $0.owner?.identifier) })
+        for index in items.indices { items[index].key = keys[index] }
         return Snapshot(items: items, dot: dot, separator: separator)
     }
 }
@@ -61,6 +66,8 @@ final class ItemScanner {
 final class OwnerResolver {
     /// Apps known to have menu bar items; asked first, so a scan usually ends after a handful.
     private var knownOwners: [pid_t] = []
+    /// The same, by bundle ID and kept across launches, so even the first scan is quick.
+    private var knownBundles = Set(UserDefaults.standard.stringArray(forKey: "knownOwnerBundles") ?? [])
     /// Apps without menu bar items, skipped until an app launches or a few minutes pass.
     private var withoutExtras: [pid_t: Date] = [:]
     private let ownPID = ProcessInfo.processInfo.processIdentifier
@@ -81,8 +88,10 @@ final class OwnerResolver {
 
         let running = NSWorkspace.shared.runningApplications.filter { $0.processIdentifier != ownPID }
         let known = Set(knownOwners)
-        let ordered = running.filter { known.contains($0.processIdentifier) }
-            + running.filter { !known.contains($0.processIdentifier) }
+        let isKnown = { (app: NSRunningApplication) in
+            known.contains(app.processIdentifier) || app.bundleIdentifier.map(self.knownBundles.contains) == true
+        }
+        let ordered = running.filter(isKnown) + running.filter { !isKnown($0) }
         var owners: [pid_t] = []
 
         for app in ordered {
@@ -105,12 +114,18 @@ final class OwnerResolver {
                 else { continue }
                 let detail = AX.string(child, kAXDescriptionAttribute) ?? AX.string(child, kAXTitleAttribute)
                 result[match.windowID] = MenuBarItem.Owner(
-                    pid: pid, bundleID: app.bundleIdentifier, appName: name, detail: detail, element: child
+                    pid: pid, bundleID: app.bundleIdentifier, appName: name, detail: detail,
+                    identifier: AX.string(child, "AXIdentifier"), element: child
                 )
                 owners.append(pid)
             }
         }
         knownOwners = Array(Set(owners))
+        let bundles = Set(owners.compactMap { pid in running.first { $0.processIdentifier == pid }?.bundleIdentifier })
+        if !bundles.isSubset(of: knownBundles) {
+            knownBundles.formUnion(bundles)
+            UserDefaults.standard.set(Array(knownBundles), forKey: "knownOwnerBundles")
+        }
 
         let ms = Int(Date.now.timeIntervalSince(started) * 1000)
         if ms > 100 { Log.info("owner scan took \(ms) ms over \(queried) apps") }

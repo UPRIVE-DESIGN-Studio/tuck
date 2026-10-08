@@ -19,11 +19,18 @@ final class TuckController {
         let started: ContinuousClock.Instant
     }
 
+    private var queued = 0
+
+    /// Nothing queued or running, and no item temporarily out.
+    var isIdle: Bool { queued <= 1 && tempShown == nil }
+
     func enqueue(_ work: @escaping () async -> Void) {
         let previous = tail
+        queued += 1
         tail = Task {
             await previous?.value
             await work()
+            queued -= 1
         }
     }
 
@@ -36,8 +43,28 @@ final class TuckController {
             Log.error("hide: separator window not found")
             return
         }
-        _ = await mover.move(windowID, to: .leftOf(separator.windowID), landed: pushedOffScreen)
+        _ = await mover.move(windowID, to: .leftOf(separator.windowID), edgeFirst: true, landed: pushedOffScreen)
         await settleSeparator()
+    }
+
+    /// Moves an item anywhere on the visible side. Items coming out of the hidden section first
+    /// step onto the section boundary, which lands reliably, and travel from there: one long drag
+    /// across the boundary lands unpredictably on macOS 26.
+    @discardableResult
+    func relocate(_ windowID: CGWindowID, to destination: ItemMover.Destination) async -> Bool {
+        let snapshot = scanner.scan(resolveOwners: false)
+        if let separator = snapshot.separator, destination.target != separator.windowID,
+           snapshot.item(windowID)?.placement == .hidden {
+            guard await mover.move(windowID, to: .rightOf(separator.windowID), edgeFirst: true, landed: cameOut)
+            else { return false }
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+        return await mover.move(windowID, to: destination)
+    }
+
+    /// The reverse: out of the collapsed hidden section, an item is back at a positive x.
+    private func cameOut(_ frame: CGRect) -> Bool {
+        controls.separatorState == .collapsed && frame.minX >= 0
     }
 
     /// With the separator collapsed, anything that lands in the hidden section ends up past the
@@ -52,7 +79,7 @@ final class TuckController {
             Log.error("show: no place next to the dot")
             return
         }
-        _ = await mover.move(windowID, to: destination)
+        await relocate(windowID, to: destination)
         await settleSeparator()
     }
 
@@ -67,6 +94,35 @@ final class TuckController {
             return .rightOf(neighbour.windowID)
         }
         return snapshot.separator.map { .rightOf($0.windowID) }
+    }
+
+    /// Puts an item on the visible side where its rank says: just left of the nearest item that
+    /// outranks it, or next to the dot if nothing does.
+    func place(_ windowID: CGWindowID, rank: Int, ranks: (ItemKey) -> Int) async {
+        let snapshot = scanner.scan()
+        let outranking = snapshot.items
+            .filter { $0.windowID != windowID && $0.placement.isVisibleSide }
+            .compactMap { item in item.key.map { (item, ranks($0)) } }
+            .filter { $0.1 < rank }
+            .max { $0.1 < $1.1 }
+        let destination: ItemMover.Destination? = outranking.map { .leftOf($0.0.windowID) } ?? nextToDot(moving: windowID)
+        guard let destination else { return }
+        await relocate(windowID, to: destination)
+        await settleSeparator()
+    }
+
+    /// Rearranges the visible side to match `order` (most important first, next to the dot).
+    /// Items already in place are left alone.
+    func arrange(_ order: [ItemKey]) async {
+        var previous: CGWindowID?
+        for key in order {
+            let snapshot = scanner.scan()
+            guard let item = snapshot.items.first(where: { $0.key == key }), item.placement.isVisibleSide else { continue }
+            let destination: ItemMover.Destination? = previous.map { .leftOf($0) } ?? nextToDot(moving: item.windowID)
+            if let destination { await relocate(item.windowID, to: destination) }
+            previous = item.windowID
+        }
+        await settleSeparator()
     }
 
     // MARK: Open
@@ -103,7 +159,12 @@ final class TuckController {
             return
         }
 
-        guard await mover.move(windowID, to: destination) else {
+        let moved = if spot == .notch, case .rightOf(let target) = destination, target == snapshot.separator?.windowID {
+            await mover.move(windowID, to: destination, edgeFirst: true, landed: cameOut)
+        } else {
+            await relocate(windowID, to: destination)
+        }
+        guard moved else {
             pressFallback(item)
             return
         }
@@ -166,8 +227,16 @@ final class TuckController {
         watcher = nil
         guard let shown = tempShown else { return }
         tempShown = nil
-        _ = await mover.move(shown.windowID, to: shown.returnTo, landed: pushedOffScreen)
+        let edge = shown.returnTo.target == scanner.scan(resolveOwners: false).separator?.windowID
+        _ = await mover.move(shown.windowID, to: shown.returnTo, edgeFirst: edge, landed: pushedOffScreen)
         await settleSeparator()
+    }
+
+    /// Whether the screen showing Tuck's dot has a notch.
+    var menuBarHasNotch: Bool {
+        guard let window = controls.dot.button?.window else { return true }
+        let screen = window.screen ?? NSScreen.screens.first { $0.frame.intersects(window.frame) }
+        return screen.map { NotchSensor.notchRect(of: $0) != nil } ?? true
     }
 
     // MARK: Separator
@@ -183,11 +252,13 @@ final class TuckController {
         try? await Task.sleep(for: .milliseconds(50))
     }
 
-    /// Collapses the separator when something is hidden, and makes it vanish when nothing is.
+    /// Collapses the separator when something is hidden, and makes it vanish when nothing is or
+    /// when the menu bar is on a display without a notch and everything should show there.
     func settleSeparator() async {
         try? await Task.sleep(for: .milliseconds(80))
         let hasHidden = scanner.scan(resolveOwners: false).hasHidden
-        let desired: ControlItems.SeparatorState = hasHidden ? .collapsed : .idle
+        let reveal = Preferences.revealOnPlainDisplays && !menuBarHasNotch
+        let desired: ControlItems.SeparatorState = hasHidden && !reveal ? .collapsed : .idle
         if controls.separatorState != desired {
             controls.apply(desired)
         }

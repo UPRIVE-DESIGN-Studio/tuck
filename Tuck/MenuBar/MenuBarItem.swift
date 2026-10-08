@@ -8,6 +8,8 @@ struct MenuBarItem: Identifiable {
         let appName: String
         /// The item's own Accessibility label, e.g. "Wi‑Fi" for a Control Center module.
         let detail: String?
+        /// `AXIdentifier`, e.g. "com.apple.menuextra.wifi". Only some apps set one.
+        let identifier: String?
         let element: AXUIElement
     }
 
@@ -18,6 +20,8 @@ struct MenuBarItem: Identifiable {
     let isOnScreen: Bool
     let placement: Placement
     var owner: Owner?
+    /// Stable identity across app relaunches and reboots; nil until the owner is known.
+    var key: ItemKey?
 
     var id: CGWindowID { windowID }
 
@@ -47,6 +51,40 @@ enum Placement: Equatable {
     }
 
     var isTucked: Bool { self == .hidden || self == .overflow }
+    /// Right of the separator, whether or not macOS found room for it.
+    var isVisibleSide: Bool { self == .visible || self == .overflow }
+}
+
+/// Identifies an item across relaunches: window IDs change every time an app starts, so items
+/// are keyed by app plus the item's Accessibility identifier, or its position among that app's
+/// items when it has none.
+struct ItemKey: Hashable, Codable, Comparable, CustomStringConvertible {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    init(bundleID: String, qualifier: String) {
+        rawValue = "\(bundleID)|\(qualifier)"
+    }
+
+    var bundleID: String { String(rawValue.prefix { $0 != "|" }) }
+    var description: String { rawValue }
+
+    static func < (lhs: ItemKey, rhs: ItemKey) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    /// Keys for a whole snapshot, in the order given (left to right).
+    static func keys(for owners: [(bundleID: String?, identifier: String?)]) -> [ItemKey?] {
+        var seen: [String: Int] = [:]
+        return owners.map { owner in
+            guard let bundleID = owner.bundleID else { return nil }
+            if let identifier = owner.identifier { return ItemKey(bundleID: bundleID, qualifier: identifier) }
+            let index = seen[bundleID, default: 0]
+            seen[bundleID] = index + 1
+            return ItemKey(bundleID: bundleID, qualifier: "#\(index)")
+        }
+    }
 }
 
 enum ItemLabel {
