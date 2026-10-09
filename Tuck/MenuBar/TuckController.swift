@@ -206,8 +206,7 @@ final class TuckController {
 
     /// The item's right-hand neighbour today, so it can be put back exactly where it was.
     private func returnDestination(for windowID: CGWindowID) -> ItemMover.Destination? {
-        let top = controls.dotFrame?.minY ?? 0
-        let all = WindowList.statusItems(menuBarTop: top)
+        let all = WindowList.row(containing: windowID)
         guard let index = all.firstIndex(where: { $0.windowID == windowID }), index + 1 < all.count else { return nil }
         return .leftOf(all[index + 1].windowID)
     }
@@ -287,11 +286,15 @@ final class TuckController {
         await settleSeparator()
     }
 
-    /// Whether the screen showing Tuck's dot has a notch.
+    /// Whether the display the pointer is on (where macOS reports the dot) has a notch.
     var menuBarHasNotch: Bool {
-        guard let window = controls.dot.button?.window else { return true }
-        let screen = window.screen ?? NSScreen.screens.first { $0.frame.intersects(window.frame) }
-        return screen.map { NotchSensor.notchRect(of: $0) != nil } ?? true
+        controls.dotScreen.map { NotchSensor.notchRect(of: $0) != nil } ?? true
+    }
+
+    /// A display without a notch is connected: there is room for everything somewhere, so Auto
+    /// items stay out. Depends only on what is plugged in, never on where the pointer is.
+    static var hasRoomyDisplay: Bool {
+        NSScreen.screens.contains { NotchSensor.notchRect(of: $0) == nil }
     }
 
     // MARK: Separator
@@ -312,7 +315,7 @@ final class TuckController {
     func settleSeparator() async {
         try? await Task.sleep(for: .milliseconds(80))
         let hasHidden = scanner.scan(resolveOwners: false).hasHidden
-        let reveal = Preferences.revealOnPlainDisplays && !menuBarHasNotch
+        let reveal = Preferences.revealOnPlainDisplays && Self.hasRoomyDisplay
         let desired: ControlItems.SeparatorState = hasHidden && !reveal ? .collapsed : .idle
         if controls.separatorState != desired {
             controls.apply(desired)

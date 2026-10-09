@@ -36,7 +36,7 @@ private struct ItemsTab: View {
                 Toggle("Tuck automatically when the notch would cover items", isOn: Binding(
                     get: { model.autoTuck }, set: { model.setAutoTuck($0) }
                 ))
-                Text("Drag to rank. Items at the top sit next to the clock and are tucked last. **Show** is never tucked, **Auto** is tucked when space runs out, **Hide** always lives in Tuck.")
+                Text("Drag to rank. Items at the top sit next to the clock and are tucked last. **Show** is never tucked, **Auto** is tucked when the notch runs out of space (never while an external display is connected), **Hide** always lives in Tuck.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -113,7 +113,7 @@ private struct ItemRow: View {
 
     private var status: String {
         var text = switch row.placement {
-        case .hidden where row.isOnScreen: "In the menu bar (display without a notch)"
+        case .hidden where row.isOnScreen: "In the menu bar (external display)"
         case .hidden where row.isAutoTucked: "Tucked automatically — no room"
         case .hidden: "Hidden in Tuck"
         case .overflow: "Behind the notch — reachable from the dot"
@@ -164,8 +164,8 @@ private struct GeneralTab: View {
         Form {
             Section("Menu Bar") {
                 Toggle(isOn: Binding(get: { model.revealOnPlainDisplays }, set: { model.setRevealOnPlainDisplays($0) })) {
-                    Text("Show everything on displays without a notch")
-                    Text("On an external display, hidden items appear in the menu bar too.")
+                    Text("With an external display, show Hide items too")
+                    Text("Auto items always stay in the menu bar while a display without a notch is connected. This also brings out the ones set to Hide.")
                 }
                 Toggle(isOn: Binding(get: { model.showCount }, set: { model.setShowCount($0) })) {
                     Text("Show count next to the dot")

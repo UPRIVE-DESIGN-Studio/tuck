@@ -24,9 +24,10 @@ enum Preferences {
         set { UserDefaults.standard.set(newValue, forKey: Key.autoTuck) }
     }
 
-    /// On a display without a notch, show hidden items in the menu bar too. On by default.
+    /// While a display without a notch is connected, show Hide items in the menu bar too.
+    /// Off by default: Hide means hidden everywhere.
     static var revealOnPlainDisplays: Bool {
-        get { bool(Key.revealOnPlainDisplays, default: true) }
+        get { bool(Key.revealOnPlainDisplays, default: false) }
         set { UserDefaults.standard.set(newValue, forKey: Key.revealOnPlainDisplays) }
     }
 

@@ -34,7 +34,9 @@ final class TriggerEngine {
     func check() {
         let triggers = store.triggers
         // Also runs with no triggers left, to put back items whose trigger was just removed.
-        guard !triggers.isEmpty || !shownByTrigger.isEmpty, Permissions.isTrusted, controller.isIdle else { return }
+        guard !triggers.isEmpty || !shownByTrigger.isEmpty, Permissions.isTrusted, controller.isIdle,
+              Cursor.isStill
+        else { return }
         let snapshot = controller.scanner.scan()
         let power = triggers.values.contains { $0 == .onBattery || { if case .batteryBelow = $0 { true } else { false } }($0) }
             ? Conditions.power() : nil

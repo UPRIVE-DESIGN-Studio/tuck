@@ -108,6 +108,12 @@ final class ControlItems {
         }
     }
 
+    /// The display whose menu bar macOS currently reports the dot on (the one with the pointer).
+    var dotScreen: NSScreen? {
+        guard let window = dot.button?.window else { return nil }
+        return window.screen ?? NSScreen.screens.first { $0.frame.intersects(window.frame) }
+    }
+
     /// Dot frame in CoreGraphics coordinates.
     var dotFrame: CGRect? { cgFrame(of: dot) }
     var separatorFrame: CGRect? { cgFrame(of: separator) }

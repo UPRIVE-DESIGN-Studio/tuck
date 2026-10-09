@@ -6,6 +6,16 @@ import Darwin
 enum Cursor {
     private static var allowedInBackground = false
 
+    /// Seconds since the mouse last moved or a button was pressed.
+    static var idleSeconds: Double {
+        let types: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown, .rightMouseDown, .scrollWheel]
+        return types.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? .infinity
+    }
+
+    /// Automatic moves wait for a still mouse: they hide and warp the pointer, which would fight
+    /// a hand on the mouse.
+    static var isStill: Bool { idleSeconds >= 1.5 }
+
     static func location() -> CGPoint {
         CGEvent(source: nil)?.location ?? .zero
     }

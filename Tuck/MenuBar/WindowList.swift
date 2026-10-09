@@ -5,6 +5,8 @@ import CoreGraphics
 ///
 /// On macOS 26 every status item window, ours included, is owned by Control Center, so the
 /// window list alone says nothing about which app an item belongs to (see `OwnerResolver`).
+/// With several displays, every display's menu bar has its own copy of every item, all at the
+/// same height; `row(on:)` separates them.
 enum WindowList {
     struct Entry: Equatable {
         let windowID: CGWindowID
@@ -16,18 +18,50 @@ enum WindowList {
 
     private static let statusLevel = Int(CGWindowLevelForKey(.statusWindow))
 
-    /// Every status item window in the menu bar whose top edge is at `menuBarTop`, left to right.
-    static func statusItems(menuBarTop: CGFloat) -> [Entry] {
+    /// Every status item window, on any display.
+    static func allStatusItems() -> [Entry] {
         guard let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return [] }
         return raw.compactMap { info -> Entry? in
             guard info[kCGWindowLayer as String] as? Int == statusLevel,
-                  let entry = entry(from: info),
-                  abs(entry.frame.minY - menuBarTop) < 1,
-                  entry.frame.height < 60
+                  let entry = entry(from: info), entry.frame.height < 60
             else { return nil }
             return entry
         }
-        .sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    /// One display's menu bar items, left to right. Items sit edge to edge from the display's right
+    /// edge (the Clock) leftwards, hidden ones included, so the row is found by following
+    /// neighbours from the right edge. Position alone is not enough: items pushed off one display
+    /// can land over another display's menu bar.
+    ///
+    /// - Parameter screen: the display's frame in CoreGraphics coordinates.
+    static func row(on screen: CGRect, in all: [Entry] = allStatusItems()) -> [Entry] {
+        let candidates = all.filter { abs($0.frame.minY - screen.minY) < 1 }
+        guard var current = candidates
+            .filter({ abs($0.frame.maxX - screen.maxX) <= 3 })
+            .max(by: { $0.frame.width < $1.frame.width })
+        else {
+            return candidates.filter { screen.minX <= $0.frame.midX && $0.frame.midX < screen.maxX }
+                .sorted { $0.frame.minX < $1.frame.minX }
+        }
+        var row = [current]
+        var seen: Set<CGWindowID> = [current.windowID]
+        while let left = candidates.first(where: { !seen.contains($0.windowID) && abs($0.frame.maxX - current.frame.minX) <= 2 }) {
+            row.append(left)
+            seen.insert(left.windowID)
+            current = left
+        }
+        return row.reversed()
+    }
+
+    /// The row that contains `windowID`, on whichever display that is.
+    static func row(containing windowID: CGWindowID) -> [Entry] {
+        let all = allStatusItems()
+        for screen in NSScreen.screens {
+            let row = row(on: Coordinates.cgRect(fromCocoa: screen.frame), in: all)
+            if row.contains(where: { $0.windowID == windowID }) { return row }
+        }
+        return []
     }
 
     /// Looked up in the full list: on macOS 26 `.optionIncludingWindow` returns nothing for item windows.

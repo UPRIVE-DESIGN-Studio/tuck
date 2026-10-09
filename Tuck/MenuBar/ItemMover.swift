@@ -87,7 +87,7 @@ final class ItemMover {
                 Log.error("move \(windowID): window gone")
                 return false
             }
-            if destination.isSatisfied(by: windowID, in: row(at: item.frame.minY)) { return true }
+            if destination.isSatisfied(by: windowID, in: WindowList.row(containing: windowID)) { return true }
 
             permitSyntheticEvents()
             // The events name the window, so the press location does not matter; a point off
@@ -101,7 +101,7 @@ final class ItemMover {
 
             let before = item.frame
             let done = await waitUntil(timeout: .milliseconds(500)) {
-                if destination.isSatisfied(by: windowID, in: self.row(at: before.minY)) { return true }
+                if destination.isSatisfied(by: windowID, in: WindowList.row(containing: windowID)) { return true }
                 guard let landed, let now = WindowList.frame(of: windowID), now != before else { return false }
                 return landed(now)
             }
@@ -109,8 +109,7 @@ final class ItemMover {
                 Log.info("moved \(windowID) \(destination) (attempt \(attempt), offset \(offset))")
                 return true
             }
-            let near = row(at: item.frame.minY).prefix(4).map { "\($0.windowID)@\(Int($0.frame.minX))+\(Int($0.frame.width))" }
-            Log.info("move \(windowID) \(destination) attempt \(attempt) did not land; row starts \(near)")
+            Log.info("move \(windowID) \(destination) attempt \(attempt) did not land; now \(WindowList.frame(of: windowID) ?? .null)")
         }
         Log.error("move \(windowID) \(destination) failed")
         return false
@@ -136,10 +135,6 @@ final class ItemMover {
         post(mouseEvent(up, at: point, window: windowID, pid: item.ownerPID, flags: flags, button: button, clickState: 1))
         Log.info("clicked \(windowID) at \(point) (route \(route.rawValue))")
         return true
-    }
-
-    private func row(at menuBarTop: CGFloat) -> [WindowList.Entry] {
-        WindowList.statusItems(menuBarTop: menuBarTop)
     }
 
     // MARK: Events

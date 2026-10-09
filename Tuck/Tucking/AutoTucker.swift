@@ -55,6 +55,10 @@ final class AutoTucker {
 
     /// Takes up to a few steps, re-measuring after each move.
     private func run() async {
+        guard Cursor.isStill else {
+            schedule(after: .seconds(1.5))
+            return
+        }
         await controller.settleSeparator()
         for _ in 0..<8 {
             guard let step = plan() else { break }
@@ -66,14 +70,15 @@ final class AutoTucker {
 
     private func plan() -> AutoTuckPlanner.Step? {
         guard Preferences.autoTuck, Permissions.isTrusted, controller.isIdle,
-              NSEvent.pressedMouseButtons == 0
+              NSEvent.pressedMouseButtons == 0, Cursor.isStill
         else { return nil }
 
         // Cheap first look without asking every app for its items.
+        let roomy = TuckController.hasRoomyDisplay
         let quick = controller.scanner.scan(resolveOwners: false)
-        let covered = quick.items.contains { $0.placement.isVisibleSide && !$0.isOnScreen }
+        let covered = !roomy && quick.items.contains { $0.placement.isVisibleSide && !$0.isOnScreen }
         let free = freeWidth(quick)
-        let mayRestore = !store.autoTuckedKeys.isEmpty && free > 20
+        let mayRestore = !store.autoTuckedKeys.isEmpty && (roomy || free > 20)
         guard covered || mayRestore || modesNeedEnforcing else { return nil }
 
         let snapshot = controller.scanner.scan()
@@ -90,7 +95,7 @@ final class AutoTucker {
             )
         }
         let step = AutoTuckPlanner.next(
-            candidates, autoTucked: store.autoTuckedKeys, freeWidth: free, cooling: Set(cooling.keys)
+            candidates, autoTucked: store.autoTuckedKeys, freeWidth: free, cooling: Set(cooling.keys), roomy: roomy
         )
         if step == nil { modesNeedEnforcing = false }
         return step

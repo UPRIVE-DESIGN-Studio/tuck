@@ -7,6 +7,9 @@ import CoreGraphics
 /// 2. While anything on the visible side is behind the notch, tuck the least important Auto item.
 /// 3. Once nothing is covered and there is room, bring back the most important item Tuck tucked
 ///    by itself.
+///
+/// With a display without a notch connected (`roomy`), there is room for everything there, so
+/// rule 2 is off and every item Tuck tucked comes back, whatever the notched display shows.
 enum AutoTuckPlanner {
     struct Candidate: Equatable {
         let key: ItemKey
@@ -26,13 +29,20 @@ enum AutoTuckPlanner {
     static let margin: CGFloat = 12
 
     static func next(
-        _ items: [Candidate], autoTucked: Set<ItemKey>, freeWidth: CGFloat, cooling: Set<ItemKey> = []
+        _ items: [Candidate], autoTucked: Set<ItemKey>, freeWidth: CGFloat, cooling: Set<ItemKey> = [],
+        roomy: Bool = false
     ) -> Step? {
         if let stray = items.first(where: { $0.mode == .hide && $0.placement.isVisibleSide }) {
             return .tuck(stray.key)
         }
         if let stray = items.first(where: { $0.mode == .show && $0.placement == .hidden }) {
             return .restore(stray.key)
+        }
+        if roomy {
+            return items
+                .filter { $0.placement == .hidden && autoTucked.contains($0.key) }
+                .min { $0.rank < $1.rank }
+                .map { .restore($0.key) }
         }
         let covered = items.contains { $0.placement.isVisibleSide && !$0.isOnScreen }
         if covered {

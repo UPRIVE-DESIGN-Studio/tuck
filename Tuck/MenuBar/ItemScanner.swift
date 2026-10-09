@@ -29,10 +29,12 @@ final class ItemScanner {
     }
 
     func scan(resolveOwners: Bool = true) -> Snapshot {
+        // macOS reports Tuck's own items on the display that has the pointer; read that display's
+        // copy of the menu bar, so everything in one snapshot belongs to one row.
         let dotFrame = controls.dotFrame
         let separatorFrame = controls.separatorFrame
-        let menuBarTop = dotFrame?.minY ?? 0
-        let entries = WindowList.statusItems(menuBarTop: menuBarTop)
+        let screen = controls.dotScreen ?? NSScreen.screens.first
+        let entries = screen.map { WindowList.row(on: Coordinates.cgRect(fromCocoa: $0.frame)) } ?? []
 
         // Window IDs stay the same for the item's lifetime, but the window server reports a new
         // frame a beat after AppKit does, so match by frame only until the ID is known.

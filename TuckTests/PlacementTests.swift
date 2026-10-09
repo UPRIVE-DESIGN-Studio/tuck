@@ -142,9 +142,45 @@ struct AutoTuckPlannerTests {
         #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0) == .restore(key("a")))
     }
 
+    @Test func withAnExternalDisplayCoveredItemsAreNotTucked() {
+        let items = [item("a", .overflow, on: false, rank: 0), item("b", .visible, rank: 5)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0, roomy: true) == nil)
+    }
+
+    @Test func withAnExternalDisplayTuckedItemsComeBackWithoutRoomOnTheNotch() {
+        let items = [item("a", .hidden, on: false, rank: 4, width: 300), item("b", .hidden, on: false, rank: 2)]
+        let step = AutoTuckPlanner.next(items, autoTucked: [key("a"), key("b")], freeWidth: 0, roomy: true)
+        #expect(step == .restore(key("b")))
+    }
+
+    @Test func withAnExternalDisplayHideStillHides() {
+        let items = [item("a", .visible, mode: .hide, rank: 0)]
+        #expect(AutoTuckPlanner.next(items, autoTucked: [], freeWidth: 0, roomy: true) == .tuck(key("a")))
+    }
+
     @Test func coolingItemsWaitBeforeComingBack() {
         let items = [item("a", .hidden, on: false, rank: 0)]
         #expect(AutoTuckPlanner.next(items, autoTucked: [key("a")], freeWidth: 500, cooling: [key("a")]) == nil)
+    }
+}
+
+struct RowTests {
+    func entry(_ id: CGWindowID, _ x: CGFloat, _ width: CGFloat, y: CGFloat = 0) -> WindowList.Entry {
+        WindowList.Entry(windowID: id, ownerPID: 1, frame: CGRect(x: x, y: y, width: width, height: 33), isOnScreen: true)
+    }
+
+    /// Two displays with their menu bars at the same height, as measured: a MacBook left of an LG 5K.
+    @Test func eachDisplayGetsItsOwnRow() {
+        let laptop = CGRect(x: -1728, y: 0, width: 1728, height: 1117)
+        let external = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        let all = [
+            entry(1, -170, 38), entry(2, -132, 132),        // laptop: item, clock ending at 0
+            entry(3, 2386, 38), entry(4, 2424, 136),        // external: item, clock ending at 2560
+            entry(5, -3200, 40), entry(6, -3160, 5016),     // external's hidden item and collapsed separator…
+            entry(7, 1856, 530),                            // …running on into its visible items
+        ]
+        #expect(WindowList.row(on: laptop, in: all).map(\.windowID) == [1, 2])
+        #expect(WindowList.row(on: external, in: all).map(\.windowID) == [5, 6, 7, 3, 4])
     }
 }
 
