@@ -57,7 +57,9 @@ final class SettingsModel {
             rows = []
             return
         }
-        let items = controller.scanner.scan().items.filter { $0.placement != .pinned && $0.key != nil }
+        let items = controller.scanner.scan().items.filter {
+            $0.placement != .pinned && $0.key.map { !ItemStore.fixedItems.contains($0.rawValue) } ?? false
+        }
         store.adopt(items)
         let titles = ItemLabel.titles(for: items)
         rows = items.compactMap { item -> Row? in

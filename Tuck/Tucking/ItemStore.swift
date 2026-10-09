@@ -32,11 +32,23 @@ final class ItemStore {
     private(set) var saved: Saved
     @ObservationIgnored private let defaults: UserDefaults
 
+    /// Clock and Control Center cannot be moved; Tuck never records or acts on them.
+    static let fixedItems: Set<String> = [
+        "com.apple.controlcenter|com.apple.menuextra.clock",
+        "com.apple.controlcenter|com.apple.menuextra.controlcenter",
+    ]
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.defaultsKey),
-           let decoded = try? JSONDecoder().decode(Saved.self, from: data) {
+           var decoded = try? JSONDecoder().decode(Saved.self, from: data) {
+            // Earlier builds could record these while several displays' rows were mixed up.
+            let before = decoded
+            decoded.autoTucked.removeAll(where: Self.fixedItems.contains)
+            for key in Self.fixedItems { decoded.records[key] = nil }
+            decoded.order.removeAll(where: Self.fixedItems.contains)
             saved = decoded
+            if decoded != before { save() }
         } else {
             saved = Saved()
         }
@@ -70,7 +82,7 @@ final class ItemStore {
         let firstRun = saved.records.isEmpty
         var changed = false
         for item in items.reversed() {
-            guard let key = item.key, item.placement != .pinned else { continue }
+            guard let key = item.key, item.placement != .pinned, !Self.fixedItems.contains(key.rawValue) else { continue }
             if saved.records[key.rawValue] == nil {
                 let userHidden = firstRun && item.placement == .hidden
                 saved.records[key.rawValue] = Record(mode: userHidden ? .hide : .auto)

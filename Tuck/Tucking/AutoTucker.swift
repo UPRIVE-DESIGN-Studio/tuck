@@ -87,7 +87,8 @@ final class AutoTucker {
         cooling = cooling.filter { now.timeIntervalSince($0.value) < 60 }
 
         let candidates = snapshot.items.compactMap { item -> AutoTuckPlanner.Candidate? in
-            guard let key = item.key, item.placement != .pinned else { return nil }
+            guard let key = item.key, item.placement != .pinned, !ItemStore.fixedItems.contains(key.rawValue)
+            else { return nil }
             let mode = exempt().contains(key) ? .show : store.mode(key) ?? .auto
             return AutoTuckPlanner.Candidate(
                 key: key, width: item.frame.width, placement: item.placement, isOnScreen: item.isOnScreen,

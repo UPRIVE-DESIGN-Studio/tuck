@@ -184,6 +184,19 @@ struct RowTests {
     }
 }
 
+extension RowTests {
+    /// Measured: while an item slides into the hidden section, its old spot is briefly empty.
+    @Test func aHoleLeftBySlidingItemDoesNotCutTheRow() {
+        let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        let all = [
+            entry(1, -3200, 40), entry(2, -3160, 5016),      // hidden item, collapsed separator
+            entry(3, 1856, 400),                             // visible items up to 2256
+            /* 2256…2288: the hole */ entry(4, 2288, 136), entry(5, 2424, 136),
+        ]
+        #expect(WindowList.row(on: screen, in: all).map(\.windowID) == [1, 2, 3, 4, 5])
+    }
+}
+
 struct ItemKeyTests {
     @Test func identifierWinsOverPosition() {
         let keys = ItemKey.keys(for: [("com.apple.controlcenter", "com.apple.menuextra.wifi"), ("eu.stats", nil), ("eu.stats", nil)])

@@ -46,12 +46,23 @@ enum WindowList {
         }
         var row = [current]
         var seen: Set<CGWindowID> = [current.windowID]
-        while let left = candidates.first(where: { !seen.contains($0.windowID) && abs($0.frame.maxX - current.frame.minX) <= 2 }) {
+        while let left = leftNeighbour(of: current, among: candidates, excluding: seen) {
             row.append(left)
             seen.insert(left.windowID)
             current = left
         }
         return row.reversed()
+    }
+
+    /// The item directly left of `item`. While an item slides away the row briefly has a hole, so
+    /// a gap up to one item wide is bridged; the touching neighbour wins when there is one.
+    private static func leftNeighbour(of item: Entry, among candidates: [Entry], excluding seen: Set<CGWindowID>) -> Entry? {
+        let edge = item.frame.minX
+        let touching = candidates.first { !seen.contains($0.windowID) && abs($0.frame.maxX - edge) <= 2 }
+        if let touching { return touching }
+        return candidates
+            .filter { !seen.contains($0.windowID) && $0.frame.maxX <= edge + 2 && $0.frame.maxX >= edge - 70 }
+            .max { $0.frame.maxX < $1.frame.maxX }
     }
 
     /// The row that contains `windowID`, on whichever display that is.

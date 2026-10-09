@@ -267,7 +267,8 @@ final class TuckController {
                 if !opened.isEmpty { sawInterface = true }
                 let elapsed = ContinuousClock.now - shown.started
                 let interfaceClosed = sawInterface ? opened.isEmpty : elapsed > .seconds(3)
-                if interfaceClosed && NSEvent.pressedMouseButtons == 0 {
+                // Putting the item back hides and warps the pointer; wait for a still mouse.
+                if interfaceClosed && NSEvent.pressedMouseButtons == 0 && Cursor.isStill {
                     self.enqueue { await self.rehideNow() }
                     return
                 }
@@ -313,8 +314,21 @@ final class TuckController {
     /// Collapses the separator when something is hidden, and makes it vanish when nothing is or
     /// when the menu bar is on a display without a notch and everything should show there.
     func settleSeparator() async {
-        try? await Task.sleep(for: .milliseconds(80))
-        let hasHidden = scanner.scan(resolveOwners: false).hasHidden
+        // Mid-animation the row can be incomplete. Deciding without the separator in view would
+        // read as "nothing hidden" and reveal everything, so wait for a complete row or leave it.
+        var found: ItemScanner.Snapshot?
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .milliseconds(80))
+            let snapshot = scanner.scan(resolveOwners: false)
+            if snapshot.separator != nil && snapshot.dot != nil {
+                found = snapshot
+                break
+            }
+        }
+        guard let hasHidden = found?.hasHidden else {
+            Log.info("settle: separator not in view, leaving it \(controls.separatorState)")
+            return
+        }
         let reveal = Preferences.revealOnPlainDisplays && Self.hasRoomyDisplay
         let desired: ControlItems.SeparatorState = hasHidden && !reveal ? .collapsed : .idle
         if controls.separatorState != desired {
