@@ -11,6 +11,7 @@ struct Backup: Codable, Equatable {
 
     static let preferenceKeys = [
         "notchHover", "autoTuck", "revealOnPlainDisplays", "showCount", "shelfNowPlaying", "shelfTimer", "shelfFiles",
+        "windowZones",
     ]
     private static let hotkeyKey = "KeyboardShortcuts_openDrawer"
 

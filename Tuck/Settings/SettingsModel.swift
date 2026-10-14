@@ -33,6 +33,7 @@ final class SettingsModel {
     private(set) var autoTuck = Preferences.autoTuck
     private(set) var revealOnPlainDisplays = Preferences.revealOnPlainDisplays
     private(set) var showCount = Preferences.showCount
+    private(set) var windowZones = Preferences.windowZones
 
     private(set) var health: HealthCheck.Report?
     private(set) var isCheckingHealth = false
@@ -146,6 +147,11 @@ final class SettingsModel {
         onNotchHoverChange(enabled)
     }
 
+    func setWindowZones(_ enabled: Bool) {
+        Preferences.windowZones = enabled
+        windowZones = enabled
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled {
@@ -172,6 +178,7 @@ final class SettingsModel {
         autoTuck = Preferences.autoTuck
         revealOnPlainDisplays = Preferences.revealOnPlainDisplays
         showCount = Preferences.showCount
+        windowZones = Preferences.windowZones
         onNotchHoverChange(notchHover)
         refresh()
         onLayoutPreferenceChange()

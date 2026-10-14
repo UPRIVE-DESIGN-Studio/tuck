@@ -32,6 +32,17 @@ enum AX {
         return CGRect(origin: origin, size: extent)
     }
 
+    /// Moves and resizes a window, `frame` in CoreGraphics global coordinates. Size goes first and
+    /// again last: an app may refuse a size that does not fit where the window still is.
+    static func setFrame(_ element: AXUIElement, _ frame: CGRect) {
+        var origin = frame.origin
+        var extent = frame.size
+        guard let position = AXValueCreate(.cgPoint, &origin), let size = AXValueCreate(.cgSize, &extent) else { return }
+        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, size)
+        AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position)
+        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, size)
+    }
+
     /// Presses an element. For a menu bar item that opens a menu, the call does not return until
     /// the menu closes, so the timeout is short: the menu stays open, we just stop waiting.
     @discardableResult

@@ -11,6 +11,7 @@ Built from [spec.md](spec.md). macOS 26, Apple Silicon, no Dock icon, no network
 - **Displays without a notch.** Hidden items show in the menu bar there (can be switched off).
 - **Shelf.** Under the items: what Spotify or Music is playing with play and skip, a 5/15/25 minute timer, and file drop targets (AirDrop, or Keep to park files until you drag them out). Dragging files onto the notch opens the drawer.
 - **Triggers.** An item can come into the menu bar while an app is in front, on battery, below a battery level, on a Wi‑Fi network or in a Focus, or make the drawer peek when its icon changes.
+- **Window zones.** Start dragging a window, then hold **⌃**: the places it can go light up on that display (quarters on a laptop, thirds on an ultrawide, halves standing up). Drop on one to fill it, on the line between two to span both, at the top to fill the screen. Windows that can't be resized are centred where they fit. Hold **⌃⌥** instead to split the window under the pointer: yours takes the side the pointer leans to, the other shrinks into the rest. Switch off in Settings › General › Windows.
 - **Self-check.** After a macOS update Tuck checks that finding, hiding and moving items still work, and shows "!" on the dot if not. Settings › General › Health runs it on demand.
 - **Settings file.** Export and import modes, ranks, triggers, preferences and the hotkey as JSON.
 

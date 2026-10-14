@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: TuckController?
     private var autoTucker: AutoTucker?
     private var triggers: TriggerEngine?
+    private let windowZones = WindowZones()
     private let store = ItemStore()
     private var dot: DotController?
     private var settingsWindow: WindowHost?
@@ -51,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.triggers = triggers
         autoTucker.exempt = { [weak triggers] in triggers?.shownByTrigger ?? [] }
         settings.onNotchHoverChange = { [weak self] in self?.dot?.setNotchHover($0) }
+        windowZones.start()
         Log.info("launched; trusted=\(Permissions.isTrusted)")
 
         // Status item windows get their frames a moment after creation.

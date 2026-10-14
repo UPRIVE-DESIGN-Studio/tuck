@@ -10,6 +10,7 @@ enum Preferences {
         static let shelfNowPlaying = "shelfNowPlaying"
         static let shelfTimer = "shelfTimer"
         static let shelfFiles = "shelfFiles"
+        static let windowZones = "windowZones"
     }
 
     /// Hovering the notch opens the drawer of tucked items. On by default.
@@ -51,6 +52,13 @@ enum Preferences {
     static var shelfFiles: Bool {
         get { bool(Key.shelfFiles, default: true) }
         set { UserDefaults.standard.set(newValue, forKey: Key.shelfFiles) }
+    }
+
+    /// Holding ⌃ while dragging a window shows the places it can snap to. On by default: it only
+    /// ever appears for that gesture.
+    static var windowZones: Bool {
+        get { bool(Key.windowZones, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.windowZones) }
     }
 
     private static func bool(_ key: String, default value: Bool) -> Bool {

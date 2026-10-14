@@ -179,6 +179,13 @@ private struct GeneralTab: View {
                 }
             }
 
+            Section("Windows") {
+                Toggle(isOn: Binding(get: { model.windowZones }, set: { model.setWindowZones($0) })) {
+                    Text("Snap windows while dragging with ⌃")
+                    Text("Start dragging a window, then hold Control: the places it can go light up. Drop on one to fill it, between two to span both, or at the top to fill the screen. Hold Control-Option instead to split the window under the pointer with the one you are dragging.")
+                }
+            }
+
             Section("Keyboard") {
                 KeyboardShortcuts.Recorder("Open the drawer:", name: .openDrawer)
                 Text("Then use ← → and Return to open an item, ⌥Return for its alternate menu, or start typing to search every item.")
